@@ -1004,7 +1004,7 @@ SUBROUTINE corr_k_single &
 
 !             Adjust the line parameters of each line for the particular
 !             ambient conditions.
-!$OMP PARALLEL DO PRIVATE(i) NUM_THREADS(n_omp_threads)
+!!$OMP PARALLEL DO PRIVATE(i) NUM_THREADS(n_omp_threads)
               DO i = 1, num_lines_in_band
                 CALL adjust_path ( &
                   hitran_data(i) % mol_num, &
@@ -1024,14 +1024,14 @@ SUBROUTINE corr_k_single &
                   adj_line_parm(i) % alpha_lorentz_self, &
                   adj_line_parm(i) % alpha_doppler)
               ENDDO
-!$OMP END PARALLEL DO
+!!$OMP END PARALLEL DO
 !
 !             If using the CKD continuum we now calculate the absorption
 !             of each line at its cutoff: the check on i_gas is used for
 !             safety.
               IF ( l_ckd_cutoff .AND. (i_gas == IP_H2O) ) THEN
                 ALLOCATE(k_cutoff(num_lines_in_band))
-!$OMP PARALLEL DO PRIVATE(i) NUM_THREADS(n_omp_threads)
+!!$OMP PARALLEL DO PRIVATE(i) NUM_THREADS(n_omp_threads)
                 DO i = 1, num_lines_in_band
                   CALL voigt_profile ( &
                     adj_line_parm(i) % line_centre+line_cutoff,  &
@@ -1041,7 +1041,7 @@ SUBROUTINE corr_k_single &
                     adj_line_parm(i) % alpha_doppler, &
                     k_cutoff(i))
                 ENDDO
-!$OMP END PARALLEL DO
+!!$OMP END PARALLEL DO
               ENDIF
 
 !             Set line profile correction parameters for current condition
@@ -1102,24 +1102,24 @@ SUBROUTINE corr_k_single &
         ELSE IF (l_calc_cont .AND. l_use_h2o_frn_param) THEN
 
 !         Loop over temperatures
-!$OMP PARALLEL DO PRIVATE(ipt, kabs) NUM_THREADS(n_omp_threads)
+!!$OMP PARALLEL DO PRIVATE(ipt, kabs) NUM_THREADS(n_omp_threads)
           DO ipt=1, n_pt_pair
             CALL foreign_continuum(t_calc(ipt), 0.0_RealK, 0.0_RealK, &
               n_nu, nu_wgt, .TRUE., kabs)
             kabs_all(:,ipt)=kabs
           END DO
-!$OMP END PARALLEL DO
+!!$OMP END PARALLEL DO
 
         ELSE IF (l_calc_cont .AND. l_use_h2o_self_param) THEN
 
 !         Loop over temperatures
-!$OMP PARALLEL DO PRIVATE(ipt, kabs) NUM_THREADS(n_omp_threads)
+!!$OMP PARALLEL DO PRIVATE(ipt, kabs) NUM_THREADS(n_omp_threads)
           DO ipt=1, n_pt_pair
             CALL self_continuum(t_calc(ipt), 0.0_RealK, 0.0_RealK, &
               n_nu, nu_wgt, .TRUE., kabs)
             kabs_all(:,ipt)=kabs
           END DO
-!$OMP END PARALLEL DO
+!!$OMP END PARALLEL DO
 
         END IF
 
@@ -2114,7 +2114,7 @@ CONTAINS
       j_nu_last = MIN(FLOOR((upper_cutoff - nu_wgt(1))/ &
         nu_inc + 1.0_RealK) - n_nu_excluded_upper, n_nu)
 !
-!$OMP PARALLEL DO PRIVATE(j, kabs_line) NUM_THREADS(n_omp_threads)
+!!$OMP PARALLEL DO PRIVATE(j, kabs_line) NUM_THREADS(n_omp_threads)
       DO j = j_nu_first, j_nu_last
 !
         CALL voigt_profile ( &
@@ -2138,7 +2138,7 @@ CONTAINS
           i_line_prof_corr)
 !
       END DO
-!$OMP END PARALLEL DO
+!!$OMP END PARALLEL DO
 !
     END DO
 !
@@ -2182,10 +2182,10 @@ CONTAINS
     kabs(1:n_nu)=0.0_RealK
     ptorr=p_calc(ipt)*760.0_RealK/101325.0_RealK
 
-!$OMP PARALLEL DO                                            &
-!$OMP PRIVATE(j, i, l, ll, waveno, p_lk, t_lk, k_int, p_int, &
-!$OMP         t_int, p_test, p_test2, t_test, t_test2)       &
-!$OMP NUM_THREADS(n_omp_threads)
+!!$OMP PARALLEL DO                                            &
+!!$OMP PRIVATE(j, i, l, ll, waveno, p_lk, t_lk, k_int, p_int, &
+!!$OMP         t_int, p_test, p_test2, t_test, t_test2)       &
+!!$OMP NUM_THREADS(n_omp_threads)
 !   Look-up absorption cross-section for P/T/wavenumber
     DO j = 1, n_nu
 !     Lookup wavenumer in cm-1
@@ -2253,7 +2253,7 @@ CONTAINS
           / (molar_weight(i_gas)*atomic_mass_unit*1.0E+04_RealK)
       END IF
     END DO
-!$OMP END PARALLEL DO
+!!$OMP END PARALLEL DO
 
   END SUBROUTINE calc_xsc_abs_int
 
@@ -2553,9 +2553,9 @@ CONTAINS
     ALLOCATE(k_self(n_nu))
     ALLOCATE(ktot(n_nu))
 
-!$OMP PARALLEL DO                                              &
-!$OMP PRIVATE(i_pp, pp, k_self, ktot, trans_c, il, ih, ju, jv) &
-!$OMP NUM_THREADS(n_omp_threads)
+!!$OMP PARALLEL DO                                              &
+!!$OMP PRIVATE(i_pp, pp, k_self, ktot, trans_c, il, ih, ju, jv) &
+!!$OMP NUM_THREADS(n_omp_threads)
     DO i_pp = 1, n_pp
 !
       pp = e_sat * REAL(i_pp, RealK) / REAL(n_pp, RealK)
@@ -2597,7 +2597,7 @@ CONTAINS
       ENDDO
 
     ENDDO
-!$OMP END PARALLEL DO
+!!$OMP END PARALLEL DO
 
     DEALLOCATE(trans_line)
     DEALLOCATE(k_self)
@@ -2692,9 +2692,9 @@ CONTAINS
     ALLOCATE(k_frn(n_nu))
     ALLOCATE(ktot(n_nu))
 
-!$OMP PARALLEL DO                                             &
-!$OMP PRIVATE(i_pp, pp, k_frn, ktot, trans_c, il, ih, ju, jv) &
-!$OMP NUM_THREADS(n_omp_threads)
+!!$OMP PARALLEL DO                                             &
+!!$OMP PRIVATE(i_pp, pp, k_frn, ktot, trans_c, il, ih, ju, jv) &
+!!$OMP NUM_THREADS(n_omp_threads)
     DO i_pp = 1, n_pp
 !
       pp = e_sat * REAL(i_pp, RealK) / REAL(n_pp, RealK)
@@ -2736,7 +2736,7 @@ CONTAINS
       ENDDO
 
     ENDDO
-!$OMP END PARALLEL DO
+!!$OMP END PARALLEL DO
 
     DEALLOCATE(trans_line)
     DEALLOCATE(k_frn)
