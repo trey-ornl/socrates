@@ -14,7 +14,7 @@ IMPLICIT NONE
 CONTAINS
 
 SUBROUTINE opt_prop_pade_2(id_ct, &
-  first_layer, last_layer, n_cloud_profile, i_cloud_profile, &
+  first_layer, last_layer, n_cloud, cloud_layer, cloud_profile, &
   cloud_parameter, cond_mass_frac, radius_effect, &
   k_ext_tot, k_ext_scat, asymmetry, phase_fnc_weighted, forward_scat_weighted)
 
@@ -27,10 +27,7 @@ USE realtype_rd, ONLY: RealK
 ! Dummy variables.
   INTEGER, INTENT(IN) :: first_layer, last_layer
 !       First and last layers to loop over
-  INTEGER, INTENT(IN) :: n_cloud_profile(id_ct:)
-!       Number of cloudy profiles
-  INTEGER, INTENT(IN) :: i_cloud_profile(:, id_ct:)
-!       Profiles containing clouds
+  INTEGER, INTENT(IN) :: n_cloud, cloud_layer(:), cloud_profile(:)
 
   REAL(RealK), INTENT(IN) :: cloud_parameter(:)
 !       Cloud parameters
@@ -57,40 +54,68 @@ USE realtype_rd, ONLY: RealK
       PRESENT(phase_fnc_weighted) .AND. &
       PRESENT(asymmetry) .AND. &
       PRESENT(k_ext_scat)) THEN
-    DO i=first_layer, last_layer
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        call calc_k_ext_tot()
-        call calc_k_ext_scat()
-        call calc_asymmetry()
-        call calc_forward_scat()
+      !$omp target teams distribute parallel do simd &
+      !$omp& private(i, l)
+      DO ll = 1, n_cloud
+        i = cloud_layer(ll)
+        l = cloud_profile(ll)
+        !call calc_k_ext_tot()
+        k_ext_tot(l, i)=cond_mass_frac(l, i)          &
+          *(cloud_parameter(1)+radius_effect(l, i)    &
+          *(cloud_parameter(2)+radius_effect(l, i)    &
+          *cloud_parameter(3)))                       &
+          /(1.0e+00+radius_effect(l, i)               &
+          *(cloud_parameter(4)+radius_effect(l, i)    &
+          *(cloud_parameter(5)+radius_effect(l, i)    &
+          *cloud_parameter(6))))
+        !call calc_k_ext_scat()
+        k_ext_scat(l, i)=k_ext_tot(l, i)              &
+          *(1.0e+00                                   &
+          -(cloud_parameter(7)+radius_effect(l, i)    &
+          *(cloud_parameter(8)+radius_effect(l, i)    &
+          *cloud_parameter(9)))                       &
+          /(1.0e+00+radius_effect(l, i)               &
+          *(cloud_parameter(10)+radius_effect(l, i)   &
+          *cloud_parameter(11))))
+        !call calc_asymmetry()
+        asymmetry(l, i)                               &
+          =(cloud_parameter(12)+radius_effect(l, i)   &
+          *(cloud_parameter(13)+radius_effect(l, i)   &
+          *cloud_parameter(14)))                      &
+          /(1.0e+00+radius_effect(l, i)               &
+          *(cloud_parameter(15)+radius_effect(l, i)   &
+          *cloud_parameter(16)))
+        phase_fnc_weighted(l, i, 1)                   &
+          =k_ext_scat(l, i)*asymmetry(l, i)
+        !call calc_forward_scat()
+        forward_scat_weighted(l, i)                   &
+          =phase_fnc_weighted(l, i, 1)*asymmetry(l, i)
       END DO
-    END DO
-  ELSE IF (PRESENT(phase_fnc_weighted) .AND. &
+    ELSE IF (PRESENT(phase_fnc_weighted) .AND. &
            PRESENT(asymmetry) .AND. &
            PRESENT(k_ext_scat)) THEN
-    DO i=first_layer, last_layer
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
+      STOP __LINE__
+      DO ll = 1, n_cloud
+        i = cloud_layer(ll)
+        l = cloud_profile(ll)
         call calc_k_ext_tot()
         call calc_k_ext_scat()
         call calc_asymmetry()
       END DO
-    END DO
   ELSE IF (PRESENT(k_ext_scat)) THEN
-    DO i=first_layer, last_layer
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        call calc_k_ext_tot()
-        call calc_k_ext_scat()
-      END DO
+    STOP __LINE__
+    DO ll = 1, n_cloud
+      i = cloud_layer(ll)
+      l = cloud_profile(ll)
+      call calc_k_ext_tot()
+      call calc_k_ext_scat()
     END DO
   ELSE
-    DO i=first_layer, last_layer
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        call calc_k_ext_tot()
-      END DO
+    STOP __LINE__
+    DO ll = 1, n_cloud
+      i = cloud_layer(ll)
+      l = cloud_profile(ll)
+      call calc_k_ext_tot()
     END DO
   END IF
 

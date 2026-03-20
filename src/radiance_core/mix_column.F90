@@ -57,6 +57,14 @@ SUBROUTINE mix_column(ierr                                              &
      , nd_profile, nd_layer, nd_layer_clr, id_ct                        &
      , nd_max_order, nd_source_coeff                                    &
      , nd_cloud_type, nd_overlap_coeff                                  &
+     ! Work arrays
+     , flux_direct_ground_cloud, reflect_cloud, reflect_free &
+     , s_down_cloud, s_down_free, s_up_cloud, s_up_free &
+     , source_coeff_cloud, source_coeff_free &
+     , source_ground_cloud, source_ground_free &
+     , trans_0_cloud, trans_0_cloud_dir &
+     , trans_0_free, trans_0_free_dir, trans_cloud, trans_free &
+     , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
      )
 
 
@@ -191,8 +199,45 @@ SUBROUTINE mix_column(ierr                                              &
 !       Clear direct flux
     , flux_total_clear(nd_profile, 2*nd_layer+2)
 !       Clear total flux
-
-
+! Named work arrays
+  REAL(RealK) :: &
+      flux_direct_ground_cloud(:) &
+!       Direct flux at ground under cloudy skies
+    , reflect_cloud(:, :) &
+!       Cloudy reflectance of layer
+    , reflect_free(:, :) &
+!       Free reflectance of layer
+    , source_coeff_free(:, :, :) &
+!       Free source coefficients
+    , s_down_cloud(:, :) &
+!       Cloudy downward source
+    , s_down_free(:, :) &
+!       Free downward source
+    , s_up_cloud(:, :) &
+!       Cloudy upward source
+    , s_up_free(:, :) &
+!       Free upward source
+    , source_coeff_cloud(:, :, :) &
+!       Cloudy source coefficients
+    , source_ground_cloud(:) &
+!       Source from ground under cloudy skies
+    , source_ground_free(:) &
+!       Source from ground under clear skies
+    , trans_0_cloud(:, :) &
+!       Cloudy direct transmission of layer
+    , trans_0_cloud_dir(:, :) &
+!       Cloudy direct transmission of layer without scaling
+    , trans_0_free(:, :) &
+!       Free direct transmission of layer
+    , trans_0_free_dir(:, :) &
+!       Free direct transmission of layer without scaling
+    , trans_cloud(:, :) &
+!       Cloudy transmission of layer
+    , trans_free(:, :)
+!       Free transmission of layer
+! Work arrays
+  REAL(RealK), DIMENSION(:, :) :: &
+    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6
 
 ! Local variabales.
   INTEGER                                                               &
@@ -238,50 +283,10 @@ SUBROUTINE mix_column(ierr                                              &
 
 ! Clear-sky coefficients:
   REAL (RealK) ::                                                       &
-      trans_free(nd_profile, nd_layer)                                  &
-!       Free transmission of layer
-    , reflect_free(nd_profile, nd_layer)                                &
-!       Free reflectance of layer
-    , trans_0_free(nd_profile, nd_layer)                                &
-!       Free direct transmission of layer
-    , trans_0_free_dir(nd_profile, nd_layer)                            &
-!       Free direct transmission of layer without scaling
-    , source_coeff_free(nd_profile, nd_layer, nd_source_coeff)          &
-!       Free source coefficients
-    , s_down_free(nd_profile, nd_layer)                                 &
-!       Free downward source
-    , s_up_free(nd_profile, nd_layer)                                   &
-!       Free upward source
-    , s_down_clear(nd_profile, nd_layer)                                &
+      s_down_clear(nd_profile, nd_layer)                                &
 !       Clear downward source
     , s_up_clear(nd_profile, nd_layer)
 !       Clear upward source
-
-! Cloudy coefficients:
-  REAL (RealK) ::                                                       &
-      trans_cloud(nd_profile, nd_layer)                                 &
-!       Cloudy transmission of layer
-    , reflect_cloud(nd_profile, nd_layer)                               &
-!       Cloudy reflectance of layer
-    , trans_0_cloud(nd_profile, nd_layer)                               &
-!       Cloudy direct transmission of layer
-    , trans_0_cloud_dir(nd_profile, nd_layer)                           &
-!       Cloudy direct transmission of layer without scaling
-    , source_coeff_cloud(nd_profile, nd_layer, nd_source_coeff)         &
-!       Cloudy source coefficients
-    , s_down_cloud(nd_profile, nd_layer)                                &
-!       Cloudy downward source
-    , s_up_cloud(nd_profile, nd_layer)
-!       Cloudy upward source
-
-! Source functions at the surface
-  REAL (RealK) ::                                                       &
-      source_ground_free(nd_profile)                                    &
-!       Source from ground under clear skies
-    , source_ground_cloud(nd_profile)                                   &
-!       Source from ground under cloudy skies
-    , flux_direct_ground_cloud(nd_profile)
-!       Direct flux at ground under cloudy skies
 
   INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
   INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -308,6 +313,7 @@ SUBROUTINE mix_column(ierr                                              &
 ! Set the number of source coefficients for the approximation
   n_source_coeff=set_n_source_coeff(isolir, l_ir_source_quad)
 
+  !STOP __LINE__
   CALL two_coeff(ierr, control                                          &
     , n_profile, 1, n_cloud_top-1                                       &
     , i_2stream                                                         &
@@ -317,7 +323,9 @@ SUBROUTINE mix_column(ierr                                              &
     , trans_free, reflect_free, trans_0_free_dir, trans_0_free          &
     , source_coeff_free                                                 &
     , nd_profile, 1, nd_layer_clr, 1, nd_layer, nd_source_coeff         &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
     )
+  !STOP __LINE__
   CALL two_coeff(ierr, control                                          &
     , n_profile, n_cloud_top, n_layer                                   &
     , i_2stream                                                         &
@@ -328,6 +336,7 @@ SUBROUTINE mix_column(ierr                                              &
     , trans_free, reflect_free, trans_0_free_dir, trans_0_free          &
     , source_coeff_free                                                 &
     , nd_profile, id_ct, nd_layer, 1, nd_layer, nd_source_coeff         &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
     )
 
 
@@ -337,6 +346,7 @@ SUBROUTINE mix_column(ierr                                              &
 
   IF (isolir == ip_infra_red) THEN
 
+    !STOP __LINE__
     CALL ir_source(n_profile, 1, n_layer                                &
       , source_coeff_free, diff_planck                                  &
       , l_ir_source_quad, diff_planck_2                                 &
@@ -347,6 +357,7 @@ SUBROUTINE mix_column(ierr                                              &
 !   If a clear-sky calculation is required these source terms must
 !   be stored.
     IF (l_clear) THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
           s_down_clear(l, i)=s_down_free(l, i)
@@ -357,6 +368,8 @@ SUBROUTINE mix_column(ierr                                              &
 
 !   Scale the sources by the clear-sky fractions in the cloudy
 !   layers. In higher layers the clear-sky fraction is 1.
+    !STOP __LINE__
+    !$omp target teams distribute parallel do simd collapse(2)
     DO i=n_cloud_top, n_layer
       DO l=1, n_profile
         s_down_free(l, i)=w_free(l, i)*s_down_free(l, i)
@@ -373,7 +386,7 @@ SUBROUTINE mix_column(ierr                                              &
 ! Clouds are indexed beginning with index 1 in the last
 ! dimension of arrays of optical properties.
 
-
+  !STOP __LINE__
   CALL two_coeff_cloud(ierr, control                                    &
     , n_profile, n_cloud_top, n_layer                                   &
     , i_2stream, n_source_coeff                                         &
@@ -391,6 +404,7 @@ SUBROUTINE mix_column(ierr                                              &
 
   IF (isolir == ip_infra_red) THEN
 
+    !STOP __LINE__
     CALL ir_source(n_profile, n_cloud_top, n_layer                      &
       , source_coeff_cloud, diff_planck                                 &
       , l_ir_source_quad, diff_planck_2                                 &
@@ -398,6 +412,8 @@ SUBROUTINE mix_column(ierr                                              &
       , nd_profile, nd_layer, nd_source_coeff                           &
       )
 
+    !STOP __LINE__
+    !$omp target teams distribute parallel do simd collapse(2)
     DO i=n_cloud_top, n_layer
       DO l=1, n_profile
         s_down_cloud(l, i)=w_cloud(l, i)*s_down_cloud(l, i)
@@ -413,6 +429,7 @@ SUBROUTINE mix_column(ierr                                              &
 
   IF (isolir == ip_solar) THEN
 
+    !STOP __LINE__
     CALL mixed_solar_source(control, bound                              &
       , n_profile, n_layer, n_cloud_top                                 &
       , flux_inc_direct                                                 &
@@ -439,6 +456,7 @@ SUBROUTINE mix_column(ierr                                              &
 
   CASE (ip_solver_mix_app_scat)
 
+    STOP __LINE__
     CALL mix_app_scat(n_profile, n_layer, n_cloud_top                   &
       , trans_free, reflect_free, s_down_free, s_up_free                &
       , trans_cloud, reflect_cloud                                      &
@@ -459,8 +477,11 @@ SUBROUTINE mix_column(ierr                                              &
 
   CASE (ip_solver_mix_direct, ip_solver_mix_direct_hogan)
 
+    !STOP __LINE__
 !   Set the partitioned source functions at the ground.
     IF (isolir == ip_solar) THEN
+      !STOP __LINE__
+      !$omp target teams distribute parallel do simd
       DO l=1, n_profile
         source_ground_free(l)=(direct_albedo(l)                         &
           -diffuse_albedo(l))                                           &
@@ -471,6 +492,8 @@ SUBROUTINE mix_column(ierr                                              &
           *flux_direct_ground_cloud(l)
       END DO
     ELSE
+      !STOP __LINE__
+      !$omp target teams distribute parallel do simd
       DO l=1, n_profile
         source_ground_free(l)                                           &
           =cloud_overlap(l, n_layer, i_ovp_up_ff)                       &
@@ -482,6 +505,7 @@ SUBROUTINE mix_column(ierr                                              &
     END IF
 
     IF (i_solver == ip_solver_mix_direct) THEN
+      STOP __LINE__
       CALL solver_mix_direct(n_profile, n_layer, n_cloud_top            &
       , trans_free, reflect_free, s_down_free, s_up_free                &
       , trans_cloud, reflect_cloud                                      &
@@ -502,6 +526,7 @@ SUBROUTINE mix_column(ierr                                              &
       )
 
     ELSE IF (i_solver == ip_solver_mix_direct_hogan) THEN
+      !STOP __LINE__
       CALL solver_mix_direct_hogan(n_profile, n_layer, n_cloud_top      &
       , trans_free, reflect_free, s_down_free, s_up_free                &
       , trans_cloud, reflect_cloud                                      &
@@ -519,6 +544,7 @@ SUBROUTINE mix_column(ierr                                              &
       , diffuse_albedo                                                  &
       , flux_total                                                      &
       , nd_profile, nd_layer, id_ct                                     &
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
       )
 
     END IF
@@ -535,6 +561,7 @@ SUBROUTINE mix_column(ierr                                              &
 
   IF (l_clear) THEN
 
+    STOP __LINE__
     CALL column_solver(ierr, control, bound, sph%common, sph%clear      &
       , n_profile, n_layer                                              &
       , i_scatter_method, i_solver_clear                                &

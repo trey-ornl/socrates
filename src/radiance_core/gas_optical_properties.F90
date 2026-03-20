@@ -77,14 +77,12 @@ SUBROUTINE gas_optical_properties(n_profile, n_layer                    &
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
 ! Calculate the absorption for the first gas and add on the rest.
-  !$acc parallel loop gang vector collapse(3)
   DO k_inner = 1, n_k_term_inner
     DO j=1, n_layer
       DO l=1, n_profile
         i_abs=i_abs_pointer(1)
         k_gas_abs(l, j, k_inner)                                          &
           =k_layer(l, j, i_abs, k_inner)
-        !$acc loop seq
         DO i=2, n_abs
           i_abs=i_abs_pointer(i)
           k_gas_abs(l, j, k_inner)=k_gas_abs(l, j, k_inner)               &

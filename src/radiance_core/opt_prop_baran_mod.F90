@@ -14,7 +14,7 @@ IMPLICIT NONE
 CONTAINS
 
 SUBROUTINE opt_prop_baran(id_ct, &
-  first_layer, last_layer, n_cloud_profile, i_cloud_profile, &
+  first_layer, last_layer, n_cloud, cloud_layer, cloud_profile, &
   cloud_parameter, cond_mass_frac, dim_char, t, &
   k_ext_tot, k_ext_scat, asymmetry, phase_fnc_weighted, forward_scat_weighted)
 
@@ -27,10 +27,7 @@ USE realtype_rd, ONLY: RealK
 ! Dummy variables.
   INTEGER, INTENT(IN) :: first_layer, last_layer
 !       First and last layers to loop over
-  INTEGER, INTENT(IN) :: n_cloud_profile(id_ct:)
-!       Number of cloudy profiles
-  INTEGER, INTENT(IN) :: i_cloud_profile(:, id_ct:)
-!       Profiles containing clouds
+  INTEGER, INTENT(IN) :: n_cloud, cloud_layer(:), cloud_profile(:)
 
   REAL(RealK), INTENT(IN) :: cloud_parameter(:)
 !       Cloud parameters
@@ -60,40 +57,36 @@ USE realtype_rd, ONLY: RealK
       PRESENT(phase_fnc_weighted) .AND. &
       PRESENT(asymmetry) .AND. &
       PRESENT(k_ext_scat)) THEN
-    DO i=first_layer, last_layer
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        call calc_k_ext_tot()
-        call calc_k_ext_scat()
-        call calc_asymmetry()
-        call calc_forward_scat()
-      END DO
+    DO ll = 1, n_cloud
+      i = cloud_layer(ll)
+      l = cloud_profile(ll)
+      call calc_k_ext_tot()
+      call calc_k_ext_scat()
+      call calc_asymmetry()
+      call calc_forward_scat()
     END DO
   ELSE IF (PRESENT(phase_fnc_weighted) .AND. &
            PRESENT(asymmetry) .AND. &
            PRESENT(k_ext_scat)) THEN
-    DO i=first_layer, last_layer
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        call calc_k_ext_tot()
-        call calc_k_ext_scat()
-        call calc_asymmetry()
-      END DO
+    DO ll = 1, n_cloud
+      i = cloud_layer(ll)
+      l = cloud_profile(ll)
+      call calc_k_ext_tot()
+      call calc_k_ext_scat()
+      call calc_asymmetry()
     END DO
   ELSE IF (PRESENT(k_ext_scat)) THEN
-    DO i=first_layer, last_layer
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        call calc_k_ext_tot()
-        call calc_k_ext_scat()
-      END DO
+    DO ll = 1, n_cloud
+      i = cloud_layer(ll)
+      l = cloud_profile(ll)
+      call calc_k_ext_tot()
+      call calc_k_ext_scat()
     END DO
   ELSE
-    DO i=first_layer, last_layer
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        call calc_k_ext_tot()
-      END DO
+    DO ll = 1, n_cloud
+      i = cloud_layer(ll)
+      l = cloud_profile(ll)
+      call calc_k_ext_tot()
     END DO
   END IF
 

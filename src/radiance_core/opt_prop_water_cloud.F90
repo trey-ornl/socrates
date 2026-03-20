@@ -24,7 +24,7 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName = 'OPT_PROP_WATER_CLOUD_MOD'
 CONTAINS
 SUBROUTINE opt_prop_water_cloud(ierr                                    &
     , n_profile, n_layer, n_cloud_top                                   &
-    , n_cloud_profile, i_cloud_profile                                  &
+    , n_cloud, cloud_layer, cloud_profile &
     , n_order_phase, l_rescale, n_order_forward                         &
     , l_henyey_greenstein_pf, l_solar_phf, l_lanczos                    &
     , n_order_phase_solar, n_direction, cos_sol_view                    &
@@ -41,6 +41,7 @@ SUBROUTINE opt_prop_water_cloud(ierr                                    &
     , nd_direction                                                      &
     , nd_phase_term, nd_max_order, nd_cloud_parameter                   &
     , nd_profile_prsc, nd_opt_level_prsc                                &
+    , asymmetry_process &
     )
 
 
@@ -103,12 +104,9 @@ SUBROUTINE opt_prop_water_cloud(ierr                                    &
 !       Order used in forming the forward scattering parameter
     , i_parametrization_drop                                            &
 !       Treatment of droplets
-    , n_opt_level_cloud_prsc                                            &
+    , n_opt_level_cloud_prsc 
 !       Number of levels of prescribed optical properties
-    , n_cloud_profile(id_ct: nd_layer)                                  &
-!       Number of cloudy profiles
-    , i_cloud_profile(nd_profile, id_ct: nd_layer)
-!       Profiles containing clouds
+  INTEGER, INTENT(IN) :: n_cloud, cloud_layer(:), cloud_profile(:)
   LOGICAL, INTENT(IN) ::                                                &
       l_rescale                                                         &
 !       Flag for delta-rescaling
@@ -165,6 +163,9 @@ SUBROUTINE opt_prop_water_cloud(ierr                                    &
     , forward_solar_cloud(nd_radiance_profile, id_ct: nd_layer)
 !       Cloudy forward scattering for the solar beam
 
+! Work array
+  REAL (RealK) :: asymmetry_process(:, :)
+
 ! Local variables.
   INTEGER                                                               &
       l                                                                 &
@@ -178,11 +179,9 @@ SUBROUTINE opt_prop_water_cloud(ierr                                    &
     , ls
 !       Loop variable
   REAL (RealK) ::                                                       &
-      asymmetry_process(nd_profile, id_ct: nd_layer)                    &
-!       Asymmetry of current process.
-    , phf_tmp                                                           &
+      phf_tmp                                                           &
 !       Temporary Phase Function
-    , sz(nd_radiance_profile)                                           &
+    , sz &
     , smoothing
 !       Lanczos (cosine) smoothing factor for truncated series
 
@@ -190,13 +189,13 @@ SUBROUTINE opt_prop_water_cloud(ierr                                    &
   REAL (RealK) ::                                                       &
       cnst1                                                             &
 !       Constant in recurrence for Legendre polynomials
-    , p_legendre_ls(nd_radiance_profile)                                &
+    , p_legendre_ls &
 !       Legendre polynomial at the current order
-    , p_legendre_ls_m1(nd_radiance_profile)                             &
+    , p_legendre_ls_m1 &
 !       Legendre polynomial at the previous order
-    , p_legendre_tmp(nd_radiance_profile)                               &
+    , p_legendre_tmp &
 !       Temporary Legendre polynomial
-    , ks_phf(nd_radiance_profile)
+    , ks_phf
 !       Product of the scattering and the current moment of
 !       the phase function
 
@@ -213,8 +212,9 @@ SUBROUTINE opt_prop_water_cloud(ierr                                    &
     (i_parametrization_drop == ip_drop_pade_2) .AND.                    &
     l_rescale .AND. (n_order_forward == 2) ) THEN
 
+    !STOP __LINE__
     CALL opt_prop_pade_2(id_ct, &
-      n_cloud_top, n_layer, n_cloud_profile, i_cloud_profile, &
+      n_cloud_top, n_layer, n_cloud, cloud_layer, cloud_profile, &
       cloud_parameter, liq_water_mass_frac, radius_effect, &
       k_ext_tot_cloud, k_ext_scat_cloud, asymmetry_process, &
       phase_fnc_cloud, forward_scatter_cloud)
@@ -225,49 +225,51 @@ SUBROUTINE opt_prop_water_cloud(ierr                                    &
        ( l_henyey_greenstein_pf .AND.                                   &
          (i_parametrization_drop == ip_slingo_schr_phf) ) ) THEN
 
+         STOP __LINE__
 !   Optical properties are calculated from parametrized data.
     SELECT CASE(i_parametrization_drop)
 
     CASE(ip_slingo_schrecker, ip_slingo_schr_phf)
-      DO i=n_cloud_top, n_layer
-        DO ll=1, n_cloud_profile(i)
-          l=i_cloud_profile(ll, i)
-          k_ext_tot_cloud(l, i)                                         &
-            =liq_water_mass_frac(l, i)*(cloud_parameter(1)              &
-            +cloud_parameter(2)/radius_effect(l, i))
-          k_ext_scat_cloud(l, i)=k_ext_tot_cloud(l, i)                  &
-            *(1.0e+00_RealK-cloud_parameter(3)                          &
-            -cloud_parameter(4)*radius_effect(l, i))
-          asymmetry_process(l, i)=                                      &
-            cloud_parameter(5)+cloud_parameter(6)                       &
-            *radius_effect(l, i)
-          phase_fnc_cloud(l, i, 1)=                                     &
-            k_ext_scat_cloud(l, i)*asymmetry_process(l, i)
-        END DO
+      STOP __LINE__
+      DO ll = 1, n_cloud
+        i = cloud_layer(ll)
+        l = cloud_profile(ll)
+        k_ext_tot_cloud(l, i)                                         &
+          =liq_water_mass_frac(l, i)*(cloud_parameter(1)              &
+          +cloud_parameter(2)/radius_effect(l, i))
+        k_ext_scat_cloud(l, i)=k_ext_tot_cloud(l, i)                  &
+          *(1.0e+00_RealK-cloud_parameter(3)                          &
+          -cloud_parameter(4)*radius_effect(l, i))
+        asymmetry_process(l, i)=                                      &
+          cloud_parameter(5)+cloud_parameter(6)                       &
+          *radius_effect(l, i)
+        phase_fnc_cloud(l, i, 1)=                                     &
+          k_ext_scat_cloud(l, i)*asymmetry_process(l, i)
       END DO
 
     CASE(ip_ackerman_stephens)
-      DO i=n_cloud_top, n_layer
-        DO ll=1, n_cloud_profile(i)
-          l=i_cloud_profile(ll, i)
-          k_ext_tot_cloud(l, i)=liq_water_mass_frac(l, i)               &
-            *(cloud_parameter(1)+cloud_parameter(2)                     &
-            *EXP(cloud_parameter(3)*LOG(radius_effect(l, i))))
-          k_ext_scat_cloud(l, i)=k_ext_tot_cloud(l, i)                  &
-            *(1.0e+00_RealK-cloud_parameter(4)                          &
-            -cloud_parameter(5)*EXP(cloud_parameter(6)                  &
-            *LOG(radius_effect(l, i))))
-          asymmetry_process(l, i)                                       &
-            =cloud_parameter(7)+cloud_parameter(8)                      &
-            *EXP(cloud_parameter(9)*LOG(radius_effect(l, i)))
-          phase_fnc_cloud(l, i, 1)                                      &
-            =k_ext_scat_cloud(l, i)*asymmetry_process(l, i)
-        END DO
+      STOP __LINE__
+      DO ll = 1, n_cloud
+        i = cloud_layer(ll)
+        l = cloud_profile(ll)
+        k_ext_tot_cloud(l, i)=liq_water_mass_frac(l, i)               &
+          *(cloud_parameter(1)+cloud_parameter(2)                     &
+          *EXP(cloud_parameter(3)*LOG(radius_effect(l, i))))
+        k_ext_scat_cloud(l, i)=k_ext_tot_cloud(l, i)                  &
+          *(1.0e+00_RealK-cloud_parameter(4)                          &
+          -cloud_parameter(5)*EXP(cloud_parameter(6)                  &
+          *LOG(radius_effect(l, i))))
+        asymmetry_process(l, i)                                       &
+          =cloud_parameter(7)+cloud_parameter(8)                      &
+          *EXP(cloud_parameter(9)*LOG(radius_effect(l, i)))
+        phase_fnc_cloud(l, i, 1)                                      &
+          =k_ext_scat_cloud(l, i)*asymmetry_process(l, i)
       END DO
 
     CASE(ip_drop_pade_2)
+      STOP __LINE__
       CALL opt_prop_pade_2(id_ct, &
-        n_cloud_top, n_layer, n_cloud_profile, i_cloud_profile, &
+        n_cloud_top, n_layer, n_cloud, cloud_layer, cloud_profile, &
         cloud_parameter, liq_water_mass_frac, radius_effect, &
         k_ext_tot_cloud, k_ext_scat_cloud, asymmetry_process, &
         phase_fnc_cloud)
@@ -278,190 +280,164 @@ SUBROUTINE opt_prop_water_cloud(ierr                                    &
 !   Since these parametrizations include only the asymmetry,
 !   it seems reasonable to extend them to higher
 !   truncations using the Henyey-Greenstein phase function.
+    STOP __LINE__
     DO ls=2, n_order_phase
-      DO i=n_cloud_top, n_layer
-        DO ll=1, n_cloud_profile(i)
-          l=i_cloud_profile(ll, i)
-          phase_fnc_cloud(l, i, ls)                                     &
-            =phase_fnc_cloud(l, i, ls-1)*asymmetry_process(l, i)
-        END DO
+      DO ll = 1, n_cloud
+        i = cloud_layer(ll)
+        l = cloud_profile(ll)
+        phase_fnc_cloud(l, i, ls)                                     &
+          =phase_fnc_cloud(l, i, ls-1)*asymmetry_process(l, i)
       END DO
     END DO
 
     IF (l_rescale) THEN
-      DO i=n_cloud_top, n_layer
-        DO ll=1, n_cloud_profile(i)
-          l=i_cloud_profile(ll, i)
-            forward_scatter_cloud(l, i)                                 &
-              =k_ext_scat_cloud(l, i)                                   &
-              *asymmetry_process(l, i)**n_order_forward
-        END DO
+      STOP __LINE__
+      DO ll = 1, n_cloud
+        i = cloud_layer(ll)
+        l = cloud_profile(ll)
+        forward_scatter_cloud(l, i)                                 &
+          =k_ext_scat_cloud(l, i)                                   &
+          *asymmetry_process(l, i)**n_order_forward
       END DO
     END IF
 
     IF (l_solar_phf) THEN
-!     Calculate the solar phase function to higher accuracy.
-      DO i=n_cloud_top, n_layer
+      STOP __LINE__
+      !     Calculate the solar phase function to higher accuracy.
+      DO ll = 1, n_cloud
         DO id=1, n_direction
-!         The Legendre polynomials are not stored so as to reduce
-!         the requirement for memory at very high orders of solar
-!         truncation.
-          DO ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
-!           Initialize the Legendre polynomials at the zeroth and
-!           first orders.
-            p_legendre_ls_m1(l)=1.0e+00_RealK
-            p_legendre_ls(l)=cos_sol_view(l, id)
-            ks_phf(l)=k_ext_scat_cloud(l, i)*asymmetry_process(l, i)
-            phase_fnc_solar_cloud(l, i, id)=k_ext_scat_cloud(l, i)      &
-              +ks_phf(l)*p_legendre_ls(l)*REAL(2*1+1, RealK)
-          END DO
+          !         The Legendre polynomials are not stored so as to reduce
+          !         the requirement for memory at very high orders of solar
+          !         truncation.
+          !           Initialize the Legendre polynomials at the zeroth and
+          !           first orders.
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          p_legendre_ls_m1=1.0e+00_RealK
+          p_legendre_ls=cos_sol_view(l, id)
+          ks_phf=k_ext_scat_cloud(l, i)*asymmetry_process(l, i)
+          phase_fnc_solar_cloud(l, i, id)=k_ext_scat_cloud(l, i)      &
+            +ks_phf*p_legendre_ls*REAL(2*1+1, RealK)
 
           DO ls=2, n_order_phase_solar
-!           Calculate higher orders by recurrences.
+            !           Calculate higher orders by recurrences.
             cnst1=1.0e+00_RealK-1.0e+00_RealK/REAL(ls, RealK)
-            DO ll=1, n_cloud_profile(i)
-              l=i_cloud_profile(ll, i)
-              p_legendre_tmp(l)=p_legendre_ls(l)
-              p_legendre_ls(l)                                          &
-                =(1.0e+00_RealK+cnst1)*p_legendre_ls(l)                 &
-                *cos_sol_view(l, id)-cnst1*p_legendre_ls_m1(l)
-              p_legendre_ls_m1(l)=p_legendre_tmp(l)
-              ks_phf(l)=ks_phf(l)*asymmetry_process(l, i)
-              phase_fnc_solar_cloud(l, i, id)                           &
-                =phase_fnc_solar_cloud(l, i, id)                        &
-                +ks_phf(l)*p_legendre_ls(l)                             &
-                *REAL(2*ls+1, RealK)
-            END DO
+            p_legendre_tmp=p_legendre_ls
+            p_legendre_ls                                          &
+              =(1.0e+00_RealK+cnst1)*p_legendre_ls                 &
+              *cos_sol_view(l, id)-cnst1*p_legendre_ls_m1
+            p_legendre_ls_m1=p_legendre_tmp
+            ks_phf=ks_phf*asymmetry_process(l, i)
+            phase_fnc_solar_cloud(l, i, id)                           &
+              =phase_fnc_solar_cloud(l, i, id)                        &
+              +ks_phf*p_legendre_ls                             &
+              *REAL(2*ls+1, RealK)
           END DO
         END DO
 
-!       Continue to an extra order to find the rescaling
-!       for the solar beam.
+        !       Continue to an extra order to find the rescaling
+        !       for the solar beam.
         IF (l_rescale) THEN
-          DO ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
-            forward_solar_cloud(l, i)                                   &
-              =ks_phf(l)*asymmetry_process(l, i)
-          END DO
+          forward_solar_cloud(l, i)                                   &
+            =ks_phf*asymmetry_process(l, i)
         END IF
       END DO
     END IF
 
 
   ELSE IF (.NOT. l_henyey_greenstein_pf .AND.                           &
-          (i_parametrization_drop == ip_slingo_schr_phf) ) THEN
+    (i_parametrization_drop == ip_slingo_schr_phf) ) THEN
 
-    DO i=n_cloud_top, n_layer
-
-!     To avoid the repetition of blocks of code or excessive
-!     use of memory it is easiest to have an outer loop over
-!     layers
-
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        k_ext_tot_cloud(l, i)                                           &
-          =liq_water_mass_frac(l, i)*(cloud_parameter(1)                &
-          +cloud_parameter(2)/radius_effect(l, i))
-        k_ext_scat_cloud(l, i)=k_ext_tot_cloud(l, i)                    &
-          *(1.0e+00_RealK-cloud_parameter(3)                            &
-          -cloud_parameter(4)*radius_effect(l, i))
-      END DO
+    STOP __LINE__
+    DO ll = 1, n_cloud
+      i = cloud_layer(ll)
+      l = cloud_profile(ll)
+      k_ext_tot_cloud(l, i)                                           &
+        =liq_water_mass_frac(l, i)*(cloud_parameter(1)                &
+        +cloud_parameter(2)/radius_effect(l, i))
+      k_ext_scat_cloud(l, i)=k_ext_tot_cloud(l, i)                    &
+        *(1.0e+00_RealK-cloud_parameter(3)                            &
+        -cloud_parameter(4)*radius_effect(l, i))
 
       DO ls=1, n_order_phase
-        DO ll=1, n_cloud_profile(i)
-          l=i_cloud_profile(ll, i)
-          phase_fnc_cloud(l, i, ls)                                     &
-            =k_ext_scat_cloud(l,i)*(cloud_parameter(2*ls+3)             &
-            +cloud_parameter(2*ls+4)*radius_effect(l,i))
-        END DO
+        phase_fnc_cloud(l, i, ls)                                     &
+          =k_ext_scat_cloud(l,i)*(cloud_parameter(2*ls+3)             &
+          +cloud_parameter(2*ls+4)*radius_effect(l,i))
       END DO
 
       ls=n_order_forward
 
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        forward_scatter_cloud(l,i)                                      &
-          =k_ext_scat_cloud(l,i)*(cloud_parameter(2*ls+3)               &
-          +cloud_parameter(2*ls+4)*radius_effect(l,i))
-      END DO
+      forward_scatter_cloud(l,i)                                      &
+        =k_ext_scat_cloud(l,i)*(cloud_parameter(2*ls+3)               &
+        +cloud_parameter(2*ls+4)*radius_effect(l,i))
 
       IF (l_solar_phf) THEN
 
-!       Calculate the solar phase function to higher accuracy.
+        !       Calculate the solar phase function to higher accuracy.
         DO id=1, n_direction
-!         The Legendre polynomials are not stored so as to reduce
-!         the requirement for memory at very high orders of solar
-!         truncation.
-          DO ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
-!           Initialize the Legendre polynomials at the zeroth and
-!           first orders.
-            p_legendre_ls_m1(l)=1.0e+00_RealK
-            p_legendre_ls(l)=cos_sol_view(l, id)
-            phase_fnc_solar_cloud(l, i, id)=k_ext_scat_cloud(l, i)      &
-               + phase_fnc_cloud(l, i, 1)                               &
-               * p_legendre_ls(l)*REAL(2*1+1, RealK)
-          END DO
+          !         The Legendre polynomials are not stored so as to reduce
+          !         the requirement for memory at very high orders of solar
+          !         truncation.
+          !           Initialize the Legendre polynomials at the zeroth and
+          !           first orders.
+          p_legendre_ls_m1=1.0e+00_RealK
+          p_legendre_ls=cos_sol_view(l, id)
+          phase_fnc_solar_cloud(l, i, id)=k_ext_scat_cloud(l, i)      &
+            + phase_fnc_cloud(l, i, 1)                               &
+            * p_legendre_ls*REAL(2*1+1, RealK)
 
-!         Calculate higher orders by recurrences.
+          !         Calculate higher orders by recurrences.
           DO ls=2, n_order_phase_solar
 
             IF (l_lanczos) THEN
-!             Cosine filter
+              !             Cosine filter
               smoothing = COS( REAL(ls, RealK) * pi /                   &
-                         (2.0 * n_order_phase_solar) )
+                (2.0 * n_order_phase_solar) )
             ELSE
               smoothing = 1.0e+00_RealK
             END IF
 
             cnst1=1.0e+00_RealK-1.0e+00_RealK/REAL(ls, RealK)
-            DO ll=1, n_cloud_profile(i)
-              l=i_cloud_profile(ll, i)
-              p_legendre_tmp(l)=p_legendre_ls(l)
-              p_legendre_ls(l)                                          &
-                =(1.0e+00_RealK+cnst1)*p_legendre_ls(l)                 &
-                *cos_sol_view(l, id)-cnst1*p_legendre_ls_m1(l)
-              p_legendre_ls_m1(l)=p_legendre_tmp(l)
-              phf_tmp=cloud_parameter(2*ls+3)                           &
-                     + radius_effect(l,i)                               &
-                     * cloud_parameter(2*ls+4)
-              IF (ls == n_order_phase_solar) phf_tmp=0.5*phf_tmp
-              ks_phf(l)=k_ext_scat_cloud(l,i)*phf_tmp
+            p_legendre_tmp=p_legendre_ls
+            p_legendre_ls                                          &
+              =(1.0e+00_RealK+cnst1)*p_legendre_ls                 &
+              *cos_sol_view(l, id)-cnst1*p_legendre_ls_m1
+            p_legendre_ls_m1=p_legendre_tmp
+            phf_tmp=cloud_parameter(2*ls+3)                           &
+              + radius_effect(l,i)                               &
+              * cloud_parameter(2*ls+4)
+            IF (ls == n_order_phase_solar) phf_tmp=0.5*phf_tmp
+            ks_phf=k_ext_scat_cloud(l,i)*phf_tmp
 
-              phase_fnc_solar_cloud(l, i, id)                           &
-                = phase_fnc_solar_cloud(l, i, id)                       &
-                + ks_phf(l)*p_legendre_ls(l)                            &
-                * REAL(2*ls+1, RealK)                                   &
-                * smoothing
-            END DO
+            phase_fnc_solar_cloud(l, i, id)                           &
+              = phase_fnc_solar_cloud(l, i, id)                       &
+              + ks_phf*p_legendre_ls                            &
+              * REAL(2*ls+1, RealK)                                   &
+              * smoothing
           END DO
         END DO
 
-!       Continue to an extra order to find the rescaling
-!       for the solar beam.
+        !       Continue to an extra order to find the rescaling
+        !       for the solar beam.
         IF (l_rescale) THEN
           ls=n_order_phase_solar+1
 
           IF (l_lanczos) THEN
-!           Cosine filter
+            !           Cosine filter
             smoothing = COS( REAL(n_order_phase_solar, RealK)           &
-                        * pi / (2.0 * n_order_phase_solar) )
+              * pi / (2.0 * n_order_phase_solar) )
           ELSE
             smoothing = 1.0e+00_RealK
           END IF
 
-          DO ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
-            phf_tmp=cloud_parameter(2*ls+3)                             &
-                  +radius_effect(l, i)                                  &
-                  *cloud_parameter(2*ls+4)
+          phf_tmp=cloud_parameter(2*ls+3)                             &
+            +radius_effect(l, i)                                  &
+            *cloud_parameter(2*ls+4)
 
-!           Cosine weighting.
-            forward_solar_cloud(l, i)                                   &
-              = k_ext_scat_cloud(l, i)*0.5*phf_tmp                      &
-              * smoothing
-          END DO
+          !           Cosine weighting.
+          forward_solar_cloud(l, i)                                   &
+            = k_ext_scat_cloud(l, i)*0.5*phf_tmp                      &
+            * smoothing
         END IF
 
       END IF
@@ -469,151 +445,131 @@ SUBROUTINE opt_prop_water_cloud(ierr                                    &
     END DO
 
   ELSE IF (.NOT. l_henyey_greenstein_pf .AND.                           &
-          (i_parametrization_drop == ip_ps_size_phf) ) THEN
+    (i_parametrization_drop == ip_ps_size_phf) ) THEN
 
-    DO i=n_cloud_top, n_layer
-
-!     To avoid the repetition of blocks of code or excessive
-!     use of memory it is easiest to have an outer loop over
-!     layers
-
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        sz(l)=radius_effect(l, i)/cloud_parameter(1)
-        sz(l)=MAX(0.2_RealK,MIN(sz(l),1.0_RealK))
-        k_ext_tot_cloud(l, i)                                           &
-          =liq_water_mass_frac(l, i)*(                                  &
-          cloud_parameter(3)/sz(l)**3 +                                 &
-          cloud_parameter(4)/sz(l)**2 +                                 &
-          cloud_parameter(5)/sz(l)**1 +                                 &
-          cloud_parameter(6) )
-        k_ext_scat_cloud(l, i)=k_ext_tot_cloud(l, i)                    &
-          *(1.0e+00_RealK-cloud_parameter(7)                            &
-          -cloud_parameter(8)*sz(l)                                     &
-          -cloud_parameter(9)*sz(l)**2                                  &
-          -cloud_parameter(10)*sz(l)**3                                 &
-          -cloud_parameter(11)*sz(l)**4)
-      END DO
+    STOP __LINE__
+    DO ll = 1, n_cloud
+      i = cloud_layer(ll)
+      l = cloud_profile(ll)
+      sz=radius_effect(l, i)/cloud_parameter(1)
+      sz=MAX(0.2_RealK,MIN(sz,1.0_RealK))
+      k_ext_tot_cloud(l, i)                                           &
+        =liq_water_mass_frac(l, i)*(                                  &
+        cloud_parameter(3)/sz**3 +                                 &
+        cloud_parameter(4)/sz**2 +                                 &
+        cloud_parameter(5)/sz**1 +                                 &
+        cloud_parameter(6) )
+      k_ext_scat_cloud(l, i)=k_ext_tot_cloud(l, i)                    &
+        *(1.0e+00_RealK-cloud_parameter(7)                            &
+        -cloud_parameter(8)*sz                                     &
+        -cloud_parameter(9)*sz**2                                  &
+        -cloud_parameter(10)*sz**3                                 &
+        -cloud_parameter(11)*sz**4)
 
       DO ls=1, n_order_phase
-        DO ll=1, n_cloud_profile(i)
-          l=i_cloud_profile(ll, i)
-          phase_fnc_cloud(l, i, ls)                                     &
-            =k_ext_scat_cloud(l,i)*(                                    &
-            cloud_parameter(5*ls+7)/sz(l)**4 +                          &
-            cloud_parameter(5*ls+8)/sz(l)**3 +                          &
-            cloud_parameter(5*ls+9)/sz(l)**2 +                          &
-            cloud_parameter(5*ls+10)/sz(l) +                            &
-            cloud_parameter(5*ls+11) ) *                                &
-            EXP(-cloud_parameter(2)*REAL(ls)/sz(l))
-        END DO
+        phase_fnc_cloud(l, i, ls)                                     &
+          =k_ext_scat_cloud(l,i)*(                                    &
+          cloud_parameter(5*ls+7)/sz**4 +                          &
+          cloud_parameter(5*ls+8)/sz**3 +                          &
+          cloud_parameter(5*ls+9)/sz**2 +                          &
+          cloud_parameter(5*ls+10)/sz +                            &
+          cloud_parameter(5*ls+11) ) *                                &
+          EXP(-cloud_parameter(2)*REAL(ls)/sz)
       END DO
 
       ls=n_order_forward
 
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-        forward_scatter_cloud(l,i)                                      &
-          =k_ext_scat_cloud(l,i)*(                                      &
-          cloud_parameter(5*ls+7)/sz(l)**4 +                            &
-          cloud_parameter(5*ls+8)/sz(l)**3 +                            &
-          cloud_parameter(5*ls+9)/sz(l)**2 +                            &
-          cloud_parameter(5*ls+10)/sz(l) +                              &
-          cloud_parameter(5*ls+11) ) *                                  &
-          EXP(-cloud_parameter(2)*REAL(ls)/sz(l))
-      END DO
+      forward_scatter_cloud(l,i)                                      &
+        =k_ext_scat_cloud(l,i)*(                                      &
+        cloud_parameter(5*ls+7)/sz**4 +                            &
+        cloud_parameter(5*ls+8)/sz**3 +                            &
+        cloud_parameter(5*ls+9)/sz**2 +                            &
+        cloud_parameter(5*ls+10)/sz +                              &
+        cloud_parameter(5*ls+11) ) *                                  &
+        EXP(-cloud_parameter(2)*REAL(ls)/sz)
 
       IF (l_solar_phf) THEN
 
-!       Calculate the solar phase function to higher accuracy.
+        !       Calculate the solar phase function to higher accuracy.
         DO id=1, n_direction
 
-!         The Legendre polynomials are not stored so as to reduce
-!         the requirement for memory at very high orders of solar
-!         truncation.
-          DO ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
+          !         The Legendre polynomials are not stored so as to reduce
+          !         the requirement for memory at very high orders of solar
+          !         truncation.
 
-!           Initialize the Legendre polynomials at the zeroth and
-!           first orders.
-            p_legendre_ls_m1(l)=1.0e+00_RealK
-            p_legendre_ls(l)=cos_sol_view(l, id)
-            phase_fnc_solar_cloud(l, i, id)=k_ext_scat_cloud(l, i)      &
-               + phase_fnc_cloud(l, i, 1)                               &
-               * p_legendre_ls(l)*REAL(2*1+1, RealK)
-          END DO
+          !           Initialize the Legendre polynomials at the zeroth and
+          !           first orders.
+          p_legendre_ls_m1=1.0e+00_RealK
+          p_legendre_ls=cos_sol_view(l, id)
+          phase_fnc_solar_cloud(l, i, id)=k_ext_scat_cloud(l, i)      &
+            + phase_fnc_cloud(l, i, 1)                               &
+            * p_legendre_ls*REAL(2*1+1, RealK)
 
-!         Calculate higher orders by recurrences.
+          !         Calculate higher orders by recurrences.
           DO ls=2, n_order_phase_solar
 
             IF (l_lanczos) THEN
-!             Cosine filter
+              !             Cosine filter
               smoothing = COS( REAL(ls, RealK) * pi /                   &
-                         (2.0 * n_order_phase_solar) )
+                (2.0 * n_order_phase_solar) )
             ELSE
               smoothing = 1.0e+00_RealK
             END IF
 
             cnst1=1.0e+00_RealK-1.0e+00_RealK/REAL(ls, RealK)
-            DO ll=1, n_cloud_profile(i)
-              l=i_cloud_profile(ll, i)
-              p_legendre_tmp(l)=p_legendre_ls(l)
-              p_legendre_ls(l)                                          &
-                =(1.0e+00_RealK+cnst1)*p_legendre_ls(l)                 &
-                *cos_sol_view(l, id)-cnst1*p_legendre_ls_m1(l)
-              p_legendre_ls_m1(l)=p_legendre_tmp(l)
+            p_legendre_tmp=p_legendre_ls
+            p_legendre_ls                                          &
+              =(1.0e+00_RealK+cnst1)*p_legendre_ls                 &
+              *cos_sol_view(l, id)-cnst1*p_legendre_ls_m1
+            p_legendre_ls_m1=p_legendre_tmp
 
-              phf_tmp=(cloud_parameter(5*ls+7)/sz(l)**4 +               &
-                cloud_parameter(5*ls+8)/sz(l)**3 +                      &
-                cloud_parameter(5*ls+9)/sz(l)**2 +                      &
-                cloud_parameter(5*ls+10)/sz(l) +                        &
-                cloud_parameter(5*ls+11) ) *                            &
-                EXP(-cloud_parameter(2)*REAL(ls)/sz(l))
+            phf_tmp=(cloud_parameter(5*ls+7)/sz**4 +               &
+              cloud_parameter(5*ls+8)/sz**3 +                      &
+              cloud_parameter(5*ls+9)/sz**2 +                      &
+              cloud_parameter(5*ls+10)/sz +                        &
+              cloud_parameter(5*ls+11) ) *                            &
+              EXP(-cloud_parameter(2)*REAL(ls)/sz)
 
-              IF (ls.EQ.n_order_phase_solar) phf_tmp=0.5*phf_tmp
+            IF (ls.EQ.n_order_phase_solar) phf_tmp=0.5*phf_tmp
 
-              ks_phf(l)=k_ext_scat_cloud(l,i)*phf_tmp
-              phase_fnc_solar_cloud(l, i, id)                           &
-                = phase_fnc_solar_cloud(l, i, id)                       &
-                + ks_phf(l)*p_legendre_ls(l)                            &
-                * REAL(2*ls+1, RealK)                                   &
-                * smoothing
-            END DO
+            ks_phf=k_ext_scat_cloud(l,i)*phf_tmp
+            phase_fnc_solar_cloud(l, i, id)                           &
+              = phase_fnc_solar_cloud(l, i, id)                       &
+              + ks_phf*p_legendre_ls                            &
+              * REAL(2*ls+1, RealK)                                   &
+              * smoothing
           END DO
         END DO
 
-!       Continue to an extra order to find the rescaling
-!       for the solar beam.
+        !       Continue to an extra order to find the rescaling
+        !       for the solar beam.
         IF (l_rescale) THEN
           ls=n_order_phase_solar+1
 
           IF (l_lanczos) THEN
-!           Cosine filter
+            !           Cosine filter
             smoothing = COS( REAL(n_order_phase_solar, RealK)           &
-                        * pi / (2.0 * n_order_phase_solar) )
+              * pi / (2.0 * n_order_phase_solar) )
           ELSE
             smoothing = 1.0e+00_RealK
           END IF
 
-          DO ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
-
-            phf_tmp=(cloud_parameter(5*ls+7)/sz(l)**4 +                 &
-              cloud_parameter(5*ls+8)/sz(l)**3 +                        &
-              cloud_parameter(5*ls+9)/sz(l)**2 +                        &
-              cloud_parameter(5*ls+10)/sz(l) +                          &
-              cloud_parameter(5*ls+11) ) *                              &
-              EXP(-cloud_parameter(2)*REAL(ls)/sz(l))
-!
-            forward_solar_cloud(l, i)                                   &
-              = k_ext_scat_cloud(l, i)*0.5*phf_tmp                      &
-              * smoothing
-          END DO
+          phf_tmp=(cloud_parameter(5*ls+7)/sz**4 +                 &
+            cloud_parameter(5*ls+8)/sz**3 +                        &
+            cloud_parameter(5*ls+9)/sz**2 +                        &
+            cloud_parameter(5*ls+10)/sz +                          &
+            cloud_parameter(5*ls+11) ) *                              &
+            EXP(-cloud_parameter(2)*REAL(ls)/sz)
+          !
+          forward_solar_cloud(l, i)                                   &
+            = k_ext_scat_cloud(l, i)*0.5*phf_tmp                      &
+            * smoothing
         END IF
       END IF
     END DO
 
   ELSE IF (i_parametrization_drop == ip_drop_unparametrized) THEN
+    STOP __LINE__
     CALL prsc_opt_prop(ierr                                             &
       , n_profile, n_cloud_top, n_layer                                 &
       , l_rescale, n_order_forward                                      &
@@ -634,12 +590,11 @@ SUBROUTINE opt_prop_water_cloud(ierr                                    &
 
 !   The absorption is returned from prsc_opt_prop in k_ext_tot_cloud.
 !   The scattering is added here to give the correct extinction.
-    DO i=n_cloud_top, n_layer
-      DO ll=1, n_cloud_profile(i)
-        l=i_cloud_profile(ll, i)
-          k_ext_tot_cloud(l, i) = k_ext_tot_cloud(l, i)                 &
-            + k_ext_scat_cloud(l, i)
-      END DO
+    DO ll = 1, n_cloud
+      i = cloud_layer(ll)
+      l = cloud_profile(ll)
+      k_ext_tot_cloud(l, i) = k_ext_tot_cloud(l, i)                 &
+        + k_ext_scat_cloud(l, i)
     END DO
 
   ELSE

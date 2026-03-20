@@ -120,7 +120,7 @@ SUBROUTINE inter_pt_lookup(nd_profile, nd_layer, nd_pre, nd_tmp         &
 !          Minimum and maximum values for look-up pressure
      , gf_lookup_min, gf_lookup_max                                     &
 !          Minimum and maximum values for look-up gas fraction
-     , gf_layer(nd_profile, nd_layer)                                   &
+     , gf_layer &
 !          Gas fraction of gas in layer
      , gf_layer_loc                                                     &
 !          Temporary storage of layer gas fraction
@@ -135,6 +135,9 @@ SUBROUTINE inter_pt_lookup(nd_profile, nd_layer, nd_pre, nd_tmp         &
      , j_sb
 !       Gas loop index in arrays with self-broadened
 
+  INTEGER :: jmin
+  REAL (RealK) :: x, xmin
+
   REAL (RealK), PARAMETER :: eps = EPSILON(1.0_RealK)
 
   INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -148,6 +151,9 @@ SUBROUTINE inter_pt_lookup(nd_profile, nd_layer, nd_pre, nd_tmp         &
   p_lookup_min = p_lookup(1)      + MAX(ABS(p_lookup(1)     )*eps, eps)
   p_lookup_max = p_lookup(nd_pre) - MAX(ABS(p_lookup(nd_pre))*eps, eps)
 
+  !$omp target teams distribute parallel do simd collapse(2) &
+  !$omp& private(compfp, fp, ft, ftt, p_layer, t_layer) &
+  !$omp& private(j, jmin, x, xmin)
   DO i=1, n_layer
     DO l=1, n_profile
 !     Find the reference pressure on the lower side of the layer
@@ -157,8 +163,18 @@ SUBROUTINE inter_pt_lookup(nd_profile, nd_layer, nd_pre, nd_tmp         &
 !     coefficient interpolation.
       p_layer = MIN( MAX( LOG(p(l,i)), p_lookup_min ), p_lookup_max )
 
-      jp(l,i) = MINLOC( p_layer - p_lookup, 1, &
-                        p_layer - p_lookup >= 0.0_RealK)
+      !jp(l,i) = MINLOC( p_layer - p_lookup, 1, &
+      !                  p_layer - p_lookup >= 0.0_RealK)
+      jmin = 0
+      xmin = HUGE(xmin)
+      DO j=1, nd_pre
+        x = p_layer - p_lookup(j)
+        IF ((x >= 0.0_RealK).AND.(x < xmin)) THEN
+          xmin = x
+          jmin = j
+        END IF
+      END DO
+      jp(l,i) = jmin
 
       fp = ( p_layer             - p_lookup(jp(l,i)) ) &
          / ( p_lookup(jp(l,i)+1) - p_lookup(jp(l,i)) )
@@ -172,8 +188,18 @@ SUBROUTINE inter_pt_lookup(nd_profile, nd_layer, nd_pre, nd_tmp         &
       t_layer=MIN( MAX( t(l,i), t_lookup(1,jp(l,i))*(1.0_RealK+eps) ), &
                    t_lookup(nd_tmp,jp(l,i))*(1.0_RealK-eps) )
 
-      jt(l,i) = MINLOC( t_layer - t_lookup(:,jp(l,i)), 1, &
-                        t_layer - t_lookup(:,jp(l,i)) >= 0.0_RealK)
+      !jt(l,i) = MINLOC( t_layer - t_lookup(:,jp(l,i)), 1, &
+      !                  t_layer - t_lookup(:,jp(l,i)) >= 0.0_RealK)
+      jmin = 0
+      xmin = HUGE(xmin)
+      DO j=1, nd_tmp
+        x = t_layer - t_lookup(j,jp(l,i))
+        IF ((x >= 0.0_RealK).AND.(x < xmin)) THEN
+          xmin = x
+          jmin = j
+        END IF
+      END DO
+      jt(l,i) = jmin
 
       ft = ( t_layer                     - t_lookup(jt(l,i),jp(l,i)) ) &
          / ( t_lookup(jt(l,i)+1,jp(l,i)) - t_lookup(jt(l,i),jp(l,i)) )
@@ -181,8 +207,18 @@ SUBROUTINE inter_pt_lookup(nd_profile, nd_layer, nd_pre, nd_tmp         &
       t_layer=MIN( MAX( t(l,i), t_lookup(1,jp(l,i)+1)*(1.0_RealK+eps) ), &
                    t_lookup(nd_tmp,jp(l,i)+1)*(1.0_RealK-eps) )
 
-      jtt(l,i) = MINLOC( t_layer - t_lookup(:,jp(l,i)+1), 1, &
-                         t_layer - t_lookup(:,jp(l,i)+1) >= 0.0_RealK)
+      !jtt(l,i) = MINLOC( t_layer - t_lookup(:,jp(l,i)+1), 1, &
+      !                   t_layer - t_lookup(:,jp(l,i)+1) >= 0.0_RealK)
+      jmin = 0
+      xmin = HUGE(xmin)
+      DO j=1, nd_tmp
+        x = t_layer - t_lookup(j,jp(l,i)+1)
+        IF ((x >= 0.0_RealK).AND.(x < xmin)) THEN
+          xmin = x
+          jmin = j
+        END IF
+      END DO
+      jtt(l,i) = jmin
 
       ftt=(t_layer                       -t_lookup(jtt(l,i),jp(l,i)+1)) &
         / (t_lookup(jtt(l,i)+1,jp(l,i)+1)-t_lookup(jtt(l,i),jp(l,i)+1))
@@ -200,68 +236,52 @@ SUBROUTINE inter_pt_lookup(nd_profile, nd_layer, nd_pre, nd_tmp         &
 ! Find the gas fraction interpolation parameters for all gases with
 ! self-broadening.
   IF (ANY(l_self_broadening(1:n_absorb))) THEN
+    STOP __LINE__
     gf_lookup_min = gf_lookup(1) + MAX(gf_lookup(1)*eps, eps)
     gf_lookup_max = gf_lookup(n_gas_frac) - MAX(gf_lookup(n_gas_frac)*eps, eps)
     DO j=1, n_absorb
       IF (l_self_broadening(j)) THEN
         j_sb=index_sb(j)
-
-    !   Find gas fraction in the layer.
         ratio_gas = mol_weight_air/(molar_weight(type_absorb(j))*1.0E-03_RealK)
-        IF (l_water) THEN
-          ratio_water = mol_weight_air/(molar_weight(ip_h2o)*1.0E-03_RealK)
-          IF (l_mixing_ratio) THEN
-            DO i=1, n_layer
-              DO l=1, n_profile
-                gf_layer(l,i) = gas_mix_ratio(l,i,j)*ratio_gas &
+        DO i=1, n_layer
+          DO l=1, n_profile
+            !   Find gas fraction in the layer.
+            IF (l_water) THEN
+              ratio_water = mol_weight_air/(molar_weight(ip_h2o)*1.0E-03_RealK)
+              IF (l_mixing_ratio) THEN
+                gf_layer = gas_mix_ratio(l,i,j)*ratio_gas &
                   /(1.0_RealK + gas_mix_ratio(l,i,i_pointer_water) &
                   * ratio_water)
-              END DO
-            END DO
-          ELSE
-            DO i=1, n_layer
-              DO l=1, n_profile
-                gf_layer(l,i) = gas_mix_ratio(l,i,j)*ratio_gas &
+              ELSE
+                gf_layer = gas_mix_ratio(l,i,j)*ratio_gas &
                   /(1.0_RealK + gas_mix_ratio(l,i,i_pointer_water) &
                   * (ratio_water - 1.0_RealK))
-              END DO
-            END DO
-          END IF
-        ELSE
-          DO i=1, n_layer
-            DO l=1, n_profile
-              gf_layer(l,i) = gas_mix_ratio(l,i,j)*ratio_gas
-            END DO
-          END DO
-        END IF
+              END IF
+            ELSE
+              gf_layer = gas_mix_ratio(l,i,j)*ratio_gas
+            END IF
 
-    !   Find the interpolation parameters.
-        IF (n_gas_frac == 1) THEN
-!         Use only gas fraction available.
-          DO i=1, n_layer
-            DO l=1, n_profile
+            !   Find the interpolation parameters.
+            IF (n_gas_frac == 1) THEN
+              !         Use only gas fraction available.
               jgf(l,i,j_sb) = 1
               jgfp1(l,i,j_sb) = 1
               fgf(l,i,j_sb) = 1.0_RealK
-            END DO
-          END DO
-        ELSE
-!         Linear interpolation.
-          DO i=1, n_layer
-            DO l=1, n_profile
-              gf_layer_loc = MIN( MAX( gf_layer(l,i), gf_lookup_min), &
-                                  gf_lookup_max)
+            ELSE
+              !         Linear interpolation.
+              gf_layer_loc = MIN( MAX( gf_layer, gf_lookup_min), &
+                gf_lookup_max)
 
               jgf(l,i,j_sb) = &
                 MINLOC( gf_layer_loc - gf_lookup(1:n_gas_frac), 1, &
-                        gf_layer_loc - gf_lookup(1:n_gas_frac) >= 0.0_RealK)
+                gf_layer_loc - gf_lookup(1:n_gas_frac) >= 0.0_RealK)
               jgfp1(l,i,j_sb) = jgf(l,i,j_sb) + 1
               fgf(l,i,j_sb) = 1.0_RealK - &
                 ( gf_layer_loc - gf_lookup(jgf(l,i,j_sb)) ) &
                 / ( gf_lookup(jgf(l,i,j_sb)+1) - gf_lookup(jgf(l,i,j_sb)) )
-            END DO
+            END IF
           END DO
-        END IF
+        END DO
       END IF
     END DO
   END IF

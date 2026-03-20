@@ -53,6 +53,8 @@ SUBROUTINE mcica_column(ierr                                            &
   , nd_profile, nd_layer, nd_layer_clr, id_ct                           &
   , nd_source_coeff                                                     &
   , nd_cloud_type                                                       &
+  ! Work arrays
+  , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
   )
 
 
@@ -176,6 +178,9 @@ SUBROUTINE mcica_column(ierr                                            &
   LOGICAL, INTENT(IN) :: l_actinic
 !       Actinic fluxes calculated
 
+! Work arrays
+  REAL(RealK), DIMENSION(:,:) :: &
+    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5
 
 ! Local variabales.
   INTEGER ::                                                            &
@@ -256,6 +261,7 @@ SUBROUTINE mcica_column(ierr                                            &
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+
 ! Set the number of source coefficients for the approximation
   n_source_coeff=set_n_source_coeff(isolir, l_ir_source_quad)
 
@@ -263,6 +269,7 @@ SUBROUTINE mcica_column(ierr                                            &
 ! source terms for the clear sky
   IF ( (i_scatter_method == ip_scatter_full) .OR.                       &
        (i_scatter_method == ip_scatter_approx) ) THEN
+    STOP __LINE__
     CALL two_coeff(ierr, control                                        &
     , n_profile, 1, n_cloud_top-1                                       &
     , i_2stream                                                         &
@@ -272,7 +279,9 @@ SUBROUTINE mcica_column(ierr                                            &
     , trans, reflect, trans_0_dir, trans_0                              &
     , source_coeff                                                      &
     , nd_profile, 1, nd_layer_clr, 1, nd_layer, nd_source_coeff         &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
     )
+    STOP __LINE__
     CALL two_coeff(ierr, control                                        &
     , n_profile, n_cloud_top, n_layer                                   &
     , i_2stream                                                         &
@@ -283,6 +292,7 @@ SUBROUTINE mcica_column(ierr                                            &
     , trans, reflect, trans_0_dir, trans_0                              &
     , source_coeff                                                      &
     , nd_profile, id_ct, nd_layer, 1, nd_layer, nd_source_coeff         &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
     )
   ELSE IF ( (i_scatter_method == ip_no_scatter_abs) .OR.                &
             (i_scatter_method == ip_no_scatter_ext) ) THEN
@@ -451,6 +461,7 @@ SUBROUTINE mcica_column(ierr                                            &
             END IF
           END IF
 
+          STOP __LINE__
           CALL two_coeff(ierr, control                                  &
             , n_list(i,k), i, i                                         &
             , i_2stream                                                 &
@@ -461,6 +472,7 @@ SUBROUTINE mcica_column(ierr                                            &
             , trans_0_temp_dir, trans_0_temp                            &
             , source_coeff_temp                                         &
             , nd_profile, i, i, i, i, nd_source_coeff                   &
+            , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
             )
 
           DO l=1, n_list(i,k)

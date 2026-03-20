@@ -56,6 +56,12 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
     , nd_profile, nd_layer, nd_layer_clr, id_ct, nd_column              &
     , nd_cloud_type, nd_region, nd_overlap_coeff                        &
     , nd_source_coeff, nd_max_order                                     &
+    ! Work arrays
+    , rworkp1, rworkp2, rworkp3 &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+    , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+    , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+    , rworkplsc1, rworkplsc2 &
     )
 
 
@@ -256,6 +262,13 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
     , actinic_flux_clear(nd_profile, nd_layer)
 !       Clear-sky actinic flux
 
+! Work arrays
+  REAL(RealK), DIMENSION(:) :: rworkp1, rworkp2, rworkp3
+  REAL(RealK), DIMENSION(:, :) :: &
+    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6, &
+    rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12, &
+    rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18
+  REAL(RealK), DIMENSION(:, :, :) :: rworkplsc1, rworkplsc2
 
 
 ! Local variables.
@@ -294,12 +307,14 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
 ! determined by the cloud scheme selected.
 
   IF (i_cloud == ip_cloud_clear) THEN
+    STOP __LINE__
 !   Allocate and set dynamic arrays.
     ALLOCATE(tau_clr_f(nd_profile, nd_layer))
     ALLOCATE(tau_clr_dir_f(nd_profile, nd_layer))
     ALLOCATE(omega_clr_f(nd_profile, nd_layer))
     ALLOCATE(phase_fnc_clr_f(nd_profile, nd_layer, 1))
 
+    STOP __LINE__
     CALL copy_clr_full(n_profile, n_layer, n_cloud_top                  &
       , control, 1                                                      &
       , ss_prop%tau_clr, ss_prop%tau_clr_dir, ss_prop%omega_clr         &
@@ -311,6 +326,7 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
       , nd_profile, nd_layer, nd_layer_clr, id_ct, 1                    &
       )
 
+    STOP __LINE__
 !   A two-stream scheme with no clouds.
     CALL two_stream(ierr                                                &
       , control, bound                                                  &
@@ -341,16 +357,20 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
       , flux_direct, flux_total                                         &
 !                 Sizes of arrays
       , nd_profile, nd_layer, nd_source_coeff                           &
+      ! Work arrays
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
       )
 
 !   Calculate the actinic flux
     IF (l_actinic) THEN
+      STOP __LINE__
       ALLOCATE(tau_abs(nd_profile, nd_layer))
       DO i=1, n_layer
         DO l=1, n_profile
           tau_abs(l, i) = tau_clr_f(l, i)*(1.0_RealK-omega_clr_f(l, i))
         END DO
       END DO
+      STOP __LINE__
       CALL calc_actinic_flux(control, sph%allsky, sph%common, &
         n_profile, n_layer, tau_abs, flux_total, flux_direct, sec_0, &
         l_scale_solar, adjust_solar_ke, &
@@ -366,15 +386,18 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
     DEALLOCATE(phase_fnc_clr_f)
 
     IF (l_clear) THEN
+      STOP __LINE__
 !     The clear fluxes here can be copied directly without
 !     any further calculation.
       IF (isolir == ip_solar) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             flux_direct_clear(l, i)=flux_direct(l, i)
           END DO
         END DO
         IF (control%l_spherical_solar) THEN
+          STOP __LINE__
           DO i=0, n_layer+1
             DO l=1, n_profile
               sph%clear%flux_direct(l, i) &
@@ -389,12 +412,14 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
           END DO
         END IF
       END IF
+      STOP __LINE__
       DO i=1, 2*n_layer+2
         DO l=1, n_profile
           flux_total_clear(l, i)=flux_total(l, i)
         END DO
       END DO
       IF (l_actinic) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             actinic_flux_clear(l, i)=actinic_flux(l, i)
@@ -406,6 +431,7 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
   ELSE IF (i_cloud == ip_cloud_mcica) THEN
 
 
+    STOP __LINE__
     CALL mcica_column(ierr                                              &
       , control, cld, bound                                             &
 !                 Atmospheric properties
@@ -442,6 +468,7 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
       , nd_profile, nd_layer, nd_layer_clr, id_ct                       &
       , nd_source_coeff                                                 &
       , nd_cloud_type                                                   &
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
       )
 
   ELSE IF ((i_cloud == ip_cloud_mix_max).OR.                            &
@@ -452,6 +479,14 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
 !   Clouds are treated using the coupled overlaps originally
 !   introduced by Geleyn and Hollingsworth.
 
+    !STOP __LINE__
+    DO i=1, n_layer
+      DO l=1, n_profile
+        actinic_flux(l, i) = 0d0
+      END DO
+    END DO
+
+    !STOP __LINE__
     CALL mix_column(ierr                                                &
       , control, bound                                                  &
 !                 Atmospheric properties
@@ -491,6 +526,12 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
       , nd_profile, nd_layer, nd_layer_clr, id_ct                       &
       , nd_max_order, nd_source_coeff                                   &
       , nd_cloud_type, nd_overlap_coeff                                 &
+      ! Work arrays
+      , rworkp1, rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
+      , rworkpl6, rworkplsc1, rworkplsc2, rworkp2, rworkp3 &
+      , rworkpl7, rworkpl8, rworkpl9 &
+      , rworkpl10, rworkpl11, rworkpl12, rworkpl13, rworkpl14 &
+      , rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
       )
 
   ELSE IF ((i_cloud == ip_cloud_triple).OR.                             &
@@ -500,6 +541,7 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
 !   Clouds are treated using a decomposition of the column
 !   into clear-sky, stratiform and convective regions.
 
+    STOP __LINE__
     CALL triple_column(ierr                                             &
       , control, bound                                                  &
 !                 Atmospheric properties
@@ -540,6 +582,8 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
       , nd_profile, nd_layer, nd_layer_clr, id_ct                       &
       , nd_max_order, nd_source_coeff                                   &
       , nd_cloud_type, nd_region, nd_overlap_coeff                      &
+      ! Work arrays
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
       )
 
   ELSE IF (i_cloud == ip_cloud_column_max) THEN
@@ -548,11 +592,13 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
 
 !   Set a dimension to allow the subcolumns of several profiles
 !   to be considered at once.
+    STOP __LINE__
     nd_profile_column=MAX(1, n_profile)
     DO l=1, n_profile
       nd_profile_column=MAX(nd_profile_column, n_column_slv(l))
     END DO
 
+    STOP __LINE__
     CALL calc_flux_ipa(ierr                                             &
       , control, bound                                                  &
 !                 Atmospheric properties
@@ -586,6 +632,8 @@ SUBROUTINE monochromatic_radiance_tseq(ierr                             &
 !                 Dimensions of arrays
       , nd_profile, nd_layer, nd_layer_clr, id_ct, nd_column            &
       , nd_profile_column, nd_source_coeff                              &
+      ! Work arrays
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
       )
 
   END IF

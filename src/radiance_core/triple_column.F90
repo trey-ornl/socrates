@@ -57,6 +57,8 @@ SUBROUTINE triple_column(ierr                                           &
      , nd_profile, nd_layer, nd_layer_clr, id_ct                        &
      , nd_max_order, nd_source_coeff                                    &
      , nd_cloud_type, nd_region, nd_overlap_coeff                       &
+     ! Work arrays
+     , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
      )
 
 
@@ -203,7 +205,9 @@ SUBROUTINE triple_column(ierr                                           &
     , flux_total_clear(nd_profile, 2*nd_layer+2)
 !       Clear total flux
 
-
+! Work arrays
+  REAL(RealK), DIMENSION(:, :) :: &
+      rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5
 
 ! Local variabales.
   INTEGER                                                               &
@@ -277,6 +281,7 @@ SUBROUTINE triple_column(ierr                                           &
       , nd_profile, nd_layer, nd_layer_clr, id_ct                       &
       , nd_max_order, nd_source_coeff                                   &
       , nd_cloud_type, nd_region                                        &
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
       )
   ELSE IF ( (i_scatter_method == ip_no_scatter_abs) .OR.                &
             (i_scatter_method == ip_no_scatter_ext) ) THEN

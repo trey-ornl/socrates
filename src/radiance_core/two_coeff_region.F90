@@ -28,6 +28,7 @@ SUBROUTINE two_coeff_region(ierr, control                               &
      , nd_profile, nd_layer, nd_layer_clr, id_ct                        &
      , nd_max_order, nd_source_coeff                                    &
      , nd_cloud_type, nd_region                                         &
+     , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
      )
 
 
@@ -139,6 +140,9 @@ SUBROUTINE two_coeff_region(ierr, control                               &
       , nd_source_coeff, nd_region)
 !       Source coefficients in two-stream equations
 
+! Work arrays
+  REAL(RealK), DIMENSION(:, :) :: &
+    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5
 ! Local variables.
   INTEGER                                                               &
       i                                                                 &
@@ -204,6 +208,7 @@ SUBROUTINE two_coeff_region(ierr, control                               &
 ! the layers.
 
 
+  STOP __LINE__
   CALL two_coeff(ierr, control                                          &
     , n_profile, 1, n_cloud_top-1                                       &
     , i_2stream                                                         &
@@ -215,7 +220,9 @@ SUBROUTINE two_coeff_region(ierr, control                               &
     , trans_0(1, 1, ip_region_clear)                                    &
     , source_coeff(1, 1, 1, ip_region_clear)                            &
     , nd_profile, 1, nd_layer_clr, 1, nd_layer, nd_source_coeff         &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
     )
+  STOP __LINE__
   CALL two_coeff(ierr, control                                          &
     , n_profile, n_cloud_top, n_layer                                   &
     , i_2stream                                                         &
@@ -228,6 +235,7 @@ SUBROUTINE two_coeff_region(ierr, control                               &
     , source_coeff(1, 1, 1, ip_region_clear)                            &
     , nd_profile, id_ct, nd_layer, 1, nd_layer                          &
     , nd_source_coeff                                                   &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
     )
 
 
@@ -296,6 +304,7 @@ SUBROUTINE two_coeff_region(ierr, control                               &
 !       are two-dimensional, however, it is only necessary to
 !       have one layer in the temporary arrays.
 
+        STOP __LINE__
         DO l=1, n_list
           tau_gathered(l, 1)                                            &
             =tau(l_list(l), i, k)
@@ -323,7 +332,7 @@ SUBROUTINE two_coeff_region(ierr, control                               &
           END IF
         END IF
 
-
+        STOP __LINE__
         CALL two_coeff(ierr, control                                    &
           , n_list, i, i                                                &
           , i_2stream                                                   &
@@ -334,6 +343,7 @@ SUBROUTINE two_coeff_region(ierr, control                               &
           , trans_0_temp_dir, trans_0_temp                              &
           , source_coeff_temp                                           &
           , nd_profile, i, i, i, i, nd_source_coeff                     &
+          , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
           )
 
 

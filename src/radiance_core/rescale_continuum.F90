@@ -81,19 +81,17 @@ SUBROUTINE rescale_continuum(control, n_profile, n_layer, i_continuum   &
 !       Amount of continuum
 
 ! Local variables.
+  LOGICAL :: l_mixing_ratio
   INTEGER :: l, i
 !       Loop variables
-  REAL (RealK) :: molar_density_water(nd_profile, nd_layer)
+  REAL (RealK) :: molar_density_water
 !       Molar density of water vapour
-  REAL (RealK) :: pwk_in(n_profile,n_layer)
-  REAL (RealK) :: pwk(n_profile,n_layer)
-  REAL (RealK) :: twk_in(n_profile,n_layer)
-  REAL (RealK) :: twk(n_profile,n_layer)
-  REAL (RealK) :: sp1(n_profile,n_layer)
-  REAL (RealK) :: sp2(n_profile,n_layer)
-!       Workspace
-  INTEGER :: n_input
-!       No. of inputs for rtor_v function
+  REAL (RealK) :: pwk_in
+  REAL (RealK) :: pwk
+  REAL (RealK) :: twk_in
+  REAL (RealK) :: twk
+  REAL (RealK) :: sp1
+  REAL (RealK) :: sp2
 
   INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
   INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -104,80 +102,49 @@ SUBROUTINE rescale_continuum(control, n_profile, n_layer, i_continuum   &
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+  l_mixing_ratio = control%l_mixing_ratio
+
+  !$omp target teams distribute parallel do simd collapse(2) &
+  !$omp& private(molar_density_water, pwk, pwk_in, sp1, sp2, twk, twk_in) 
   DO i=1, n_layer
     DO l=1, n_profile
-      sp1(l,i)=scale_parameter(1)
-      sp2(l,i)=scale_parameter(2)
-    END DO
-  END DO
-  n_input=(n_layer)*n_profile
-  DO i=   1, n_layer
-    DO l=1, n_profile
-      pwk_in(l,i)=p(l, i)/p_reference
-    END DO
-  END DO
 
-  CALL rtor_v(n_input,pwk_in,sp1,pwk)
+      sp1=scale_parameter(1)
+      sp2=scale_parameter(2)
+      pwk_in=p(l, i)/p_reference
+      pwk = pwk_in**sp1
 
-  IF (i_fnc == ip_scale_power_law) THEN
-
-    DO i=   1, n_layer
-      DO l=1, n_profile
-        twk_in(l,i)=t(l, i)/t_reference
-      END DO
-    END DO
-
-    CALL rtor_v(n_input,twk_in,sp2,twk)
-
-    DO i=1, n_layer
-      DO l=1, n_profile
-        amount_continuum(l, i)=pwk(l,i)*twk(l,i)
-      END DO
-    END DO
-
-  ELSE IF(i_fnc == ip_scale_power_quad) THEN
-
-    DO i=1, n_layer
-      DO l=1, n_profile
+      IF (i_fnc == ip_scale_power_law) THEN
+        twk_in=t(l, i)/t_reference
+        twk = twk_in**sp2
+        amount_continuum(l, i)=pwk*twk
+      ELSE IF(i_fnc == ip_scale_power_quad) THEN
         amount_continuum(l, i)                                          &
-           =pwk(l,i)                                                    &
-           *(1.0e+00+scale_parameter(2)*(t(l, i)                        &
-           /t_reference-1.0e+00)                                        &
-           +scale_parameter(3)*(t(l, i)                                 &
-           /t_reference-1.0e+00)**2)
-      END DO
-    END DO
-  END IF
+          =pwk                                                    &
+          *(1.0e+00+scale_parameter(2)*(t(l, i)                        &
+          /t_reference-1.0e+00)                                        &
+          +scale_parameter(3)*(t(l, i)                                 &
+          /t_reference-1.0e+00)**2)
+      END IF
 
-  IF (i_continuum == ip_self_continuum) THEN
-    DO i=1, n_layer
-      DO l=1, n_profile
-        molar_density_water(l, i)=density(l, i)                         &
+      IF (i_continuum == ip_self_continuum) THEN
+        molar_density_water=density(l, i)                         &
           *water_frac(l, i)/(repsilon*mol_weight_air)
         amount_continuum(l, i)=amount_continuum(l, i)                   &
-          *molar_density_water(l, i)*water_frac(l, i)
-      END DO
-    END DO
-  ELSE IF (i_continuum == ip_frn_continuum) THEN
-    IF (control%l_mixing_ratio) THEN
-      ! In this case density and mass are for the dry component
-      DO i=1, n_layer
-        DO l=1, n_profile
+          *molar_density_water*water_frac(l, i)
+      ELSE IF (i_continuum == ip_frn_continuum) THEN
+        IF (l_mixing_ratio) THEN
+          ! In this case density and mass are for the dry component
           amount_continuum(l, i)=amount_continuum(l, i)                 &
             *density(l, i)*water_frac(l, i)/mol_weight_air
-        END DO
-      END DO
-    ELSE
-      DO i=1, n_layer
-        DO l=1, n_profile
+        ELSE
           amount_continuum(l, i)=amount_continuum(l, i)                 &
             *density(l, i)*water_frac(l, i)*(1.0_RealK-water_frac(l, i))&
             /mol_weight_air
-        END DO
-      END DO
-    END IF
-  END IF
-
+        END IF
+      END IF
+    END DO
+  END DO
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 

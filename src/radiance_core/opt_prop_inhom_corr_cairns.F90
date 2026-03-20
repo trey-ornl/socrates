@@ -20,7 +20,7 @@ IMPLICIT NONE
 CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName = 'OPT_PROP_INHOM_CORR_CAIRNS_MOD'
 CONTAINS
 SUBROUTINE opt_prop_inhom_corr_cairns(                                         &
-      n_layer, n_cloud_top, n_cloud_profile, i_cloud_profile                   &
+      n_layer, n_cloud_top, n_cloud, cloud_layer, cloud_profile &
     , l_rescale, n_order_forward                                               &
     , rel_var_dens, k_ext_tot_cloud, k_ext_scat_cloud                          &
     , phase_fnc_cloud, forward_scatter_cloud                                   &
@@ -50,12 +50,9 @@ SUBROUTINE opt_prop_inhom_corr_cairns(                                         &
 !       Number of layers
     , n_order_forward                                                          &
 !       Order used in forming the forward scattering parameter
-    , n_cloud_top                                                              &
+    , n_cloud_top
 !       Topmost cloudy layer
-    , n_cloud_profile(id_ct: nd_layer)                                         &
-!       Number of cloudy profiles
-    , i_cloud_profile(nd_profile, id_ct: nd_layer)
-!       Profiles containing clouds
+  INTEGER, INTENT(IN) :: n_cloud, cloud_layer(:), cloud_profile(:)
   LOGICAL, INTENT(IN) ::                                                       &
       l_rescale
 !       Delta-rescaling required
@@ -105,36 +102,34 @@ SUBROUTINE opt_prop_inhom_corr_cairns(                                         &
 
 ! Apply inhomogeneity corrections to optical scattering parameters
 
-  DO i=n_cloud_top, n_layer
-!CDIR NODEP
-    DO ll=1, n_cloud_profile(i)
-      l=i_cloud_profile(ll, i)
+  DO ll = 1, n_cloud
+    i = cloud_layer(ll)
+    l = cloud_profile(ll)
 
-      k_ext_tot_corr=1.0_RealK/(1.0_RealK + rel_var_dens(l, i))
-      IF (k_ext_scat_cloud(l, i) > tiny_k) THEN
-        asymmetry_process=phase_fnc_cloud(l, i)/k_ext_scat_cloud(l, i)
-        omega_process=k_ext_scat_cloud(l, i)/k_ext_tot_cloud(l, i)
+    k_ext_tot_corr=1.0_RealK/(1.0_RealK + rel_var_dens(l, i))
+    IF (k_ext_scat_cloud(l, i) > tiny_k) THEN
+      asymmetry_process=phase_fnc_cloud(l, i)/k_ext_scat_cloud(l, i)
+      omega_process=k_ext_scat_cloud(l, i)/k_ext_tot_cloud(l, i)
 
-        omega_process_corr=1.0_RealK/(1.0_RealK + rel_var_dens(l, i)           &
-          *(1.0_RealK - omega_process))
-        asymmetry_process_corr                                                 &
-          =(1.0_RealK + rel_var_dens(l, i)*(1.0_RealK - omega_process))        &
-          /(1.0_RealK + rel_var_dens(l, i)                                     &
-          *(1.0_RealK - omega_process*asymmetry_process))
+      omega_process_corr=1.0_RealK/(1.0_RealK + rel_var_dens(l, i)           &
+        *(1.0_RealK - omega_process))
+      asymmetry_process_corr                                                 &
+        =(1.0_RealK + rel_var_dens(l, i)*(1.0_RealK - omega_process))        &
+        /(1.0_RealK + rel_var_dens(l, i)                                     &
+        *(1.0_RealK - omega_process*asymmetry_process))
 
-        k_ext_scat_cloud(l, i)=k_ext_scat_cloud(l, i)                          &
-          *k_ext_tot_corr*omega_process_corr
-        phase_fnc_cloud(l, i)=phase_fnc_cloud(l, i)                            &
-          *k_ext_tot_corr*omega_process_corr*asymmetry_process_corr
-      
-        IF (l_rescale) THEN
-          forward_scatter_cloud(l, i)=forward_scatter_cloud(l, i)              &
-            *k_ext_tot_corr*omega_process_corr                                 &
-            *asymmetry_process_corr**n_order_forward
-        END IF
+      k_ext_scat_cloud(l, i)=k_ext_scat_cloud(l, i)                          &
+        *k_ext_tot_corr*omega_process_corr
+      phase_fnc_cloud(l, i)=phase_fnc_cloud(l, i)                            &
+        *k_ext_tot_corr*omega_process_corr*asymmetry_process_corr
+
+      IF (l_rescale) THEN
+        forward_scatter_cloud(l, i)=forward_scatter_cloud(l, i)              &
+          *k_ext_tot_corr*omega_process_corr                                 &
+          *asymmetry_process_corr**n_order_forward
       END IF
-      k_ext_tot_cloud(l, i)=k_ext_tot_cloud(l, i)*k_ext_tot_corr
-    END DO
+    END IF
+    k_ext_tot_cloud(l, i)=k_ext_tot_cloud(l, i)*k_ext_tot_corr
   END DO
 
 

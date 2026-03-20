@@ -57,7 +57,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
     , n_column_slv, list_column_slv &
     , i_clm_lyr_chn, i_clm_cld_typ, area_column &
 !                   Additional variables required for McICA
-    , l_cloud_cmp, n_cloud_profile, i_cloud_profile &
+    , l_cloud_cmp, n_cloud, cloud_layer, cloud_profile &
     , i_cloud_type, nd_cloud_component, i_cloud_representation &
 !                   Levels for calculating radiances
     , n_viewing_level, i_rad_layer, frac_rad_layer &
@@ -79,8 +79,18 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
     , nd_brdf_basis_fnc, nd_brdf_trunc, nd_viewing_level &
     , nd_direction, nd_source_coeff &
     , nd_point_tile, nd_tile &
+    ! Work arrays
+    , actinic_flux_part, adjust_solar_ke, d_planck_flux_surface, diffuse_albedo &
+    , k_eqv, k_gas_abs, k_grey, k_min &
+    , flux_direct_part, flux_direct_term, flux_gas &
+    , flux_inc_direct, flux_inc_down, flux_term, flux_total_part &
+    , sum_flux, sum_k_flux, tau_gas &
+    , rworkp1, rworkp2, rworkp3 &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+    , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+    , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+    , rworkplsc1, rworkplsc2 &
     )
-
 
   USE realtype_rd,  ONLY: RealK
   USE def_control,  ONLY: StrCtrl
@@ -416,12 +426,9 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 !       Clear solver used
 
 !                   Variables required for McICA
+  INTEGER, INTENT(IN) :: n_cloud, cloud_layer(:), cloud_profile(:)
   INTEGER, INTENT(IN) :: &
-      n_cloud_profile(id_ct: nd_layer) &
-!       Number of cloudy profiles in each layer
-    , i_cloud_profile(nd_profile, id_ct: nd_layer) &
-!       Profiles containing clouds
-    , nd_cloud_component &
+      nd_cloud_component &
 !       Size allocated for components of clouds
     , i_cloud_type(nd_cloud_component) &
 !       Types of cloud to which each component contributes
@@ -432,11 +439,57 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
       l_cloud_cmp(nd_cloud_component)
 !       Flags to activate cloudy components
 
+! Work arrays
+  REAL (RealK) :: &
+      actinic_flux_part(:, :) &
+!       Partial actinic flux
+    , adjust_solar_ke(:, :) &
+!       Adjustment of solar transmission to `include' effects
+!       of minor absorbers and take out equivalent extinction
+    , d_planck_flux_surface(:) &
+!       Difference in Planckian fluxes between the surface
+!       and the air
+    , diffuse_albedo(:) &
+!       Diffuse albedo of the surface
+    , flux_direct_part(:, 0:) &
+!       Partial direct flux
+    , flux_direct_term(:, 0:) &
+!       Direct flux with one term
+    , flux_gas(:, 0:) &
+!       Flux with one absorber
+    , flux_inc_direct(:) &
+!       Incident direct flux
+    , flux_inc_down(:) &
+!       Incident downward flux
+    , flux_term(:, :) &
+!       Flux with one term
+    , flux_total_part(:, :) &
+!       Partial total flux
+    , k_eqv(:, :) &
+!       Equivalent extinction
+    , k_gas_abs(:, :) &
+!       Gaseous extinction
+    , k_grey(:, :) &
+!       Grey extinction for weak absorbers
+    , k_min(:, :) &
+!       Weak absorption for minor absorber
+    , sum_flux(:, :, :) &
+!       Sum of fluxes for weighting
+    , sum_k_flux(:, :, :) &
+!       Sum of k*fluxes for weighting
+    , tau_gas(:, :)
+!       Optical depth of absorber
 
+  REAL(RealK), DIMENSION(:) :: rworkp1, rworkp2, rworkp3
+  REAL(RealK), DIMENSION(:, :) :: &
+    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6, &
+    rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12, &
+    rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18
+  REAL(RealK), DIMENSION(:, :, :) :: rworkplsc1, rworkplsc2
 
 ! Local variables.
   INTEGER :: &
-      i, ii, j, k, l, ll
+      i, ii, j, k, l, ll, n_cloud_type
 !       Loop variables
   INTEGER :: &
       i_abs &
@@ -455,37 +508,11 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
     , nd_k_term_inner_dummy = 1
 !       Maximum number of k-terms in inner loops (dummy here)
   REAL (RealK) :: &
-      d_planck_flux_surface(nd_profile) &
-!       Difference in Planckian fluxes between the surface
-!       and the air
-    , flux_inc_direct(nd_profile) &
-!       Incident direct flux
-    , flux_inc_down(nd_profile) &
-!       Incident downward flux
-    , esft_weight &
+      esft_weight 
 !       ESFT weight for current calculation
-    , adjust_solar_ke(nd_profile, nd_layer) &
-!       Adjustment of solar transmission to `include' effects
-!       of minor absorbers and take out equivalent extinction
-    , k_eqv(nd_profile, nd_layer) &
-!       Equivalent extinction
-    , k_grey(nd_profile, nd_layer) &
-!       Grey extinction for weak absorbers
-    , tau_gas(nd_profile, nd_layer) &
-!       Optical depth of absorber
-    , k_gas_abs(nd_profile, nd_layer) &
-!       Gaseous extinction
-    , diffuse_albedo(nd_profile)
-!       Diffuse albedo of the surface
   REAL (RealK) :: &
-      flux_direct_part(nd_flux_profile, 0: nd_layer) &
-!       Partial direct flux
-    , flux_direct_ground_part(nd_flux_profile) &
+      flux_direct_ground_part(nd_flux_profile) &
 !       Partial direct flux at the surface
-    , flux_total_part(nd_flux_profile, 2*nd_layer+2) &
-!       Partial total flux
-    , actinic_flux_part(nd_flux_profile, nd_layer) &
-!       Partial actinic flux
     , flux_direct_clear_part(nd_flux_profile, 0: nd_layer) &
 !       Clear partial direct flux
     , flux_total_clear_part(nd_flux_profile, 2*nd_layer+2) &
@@ -513,17 +540,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 ! extinction on fluxes, even when calculating radiances, so
 ! full sizes are required for these arrays).
   REAL (RealK) :: &
-      sum_flux(nd_profile, 2*nd_layer+2, nd_abs) &
-!       Sum of fluxes for weighting
-    , sum_k_flux(nd_profile, 2*nd_layer+2, nd_abs) &
-!       Sum of k*fluxes for weighting
-    , flux_term(nd_profile, 2*nd_layer+2) &
-!       Flux with one term
-    , flux_direct_term(nd_profile, 0:nd_layer+1) &
-!       Direct flux with one term
-    , flux_gas(nd_profile, 0: nd_layer+1) &
-!       Flux with one absorber
-    , sph_flux_gas(nd_profile, 0: nd_layer+1)
+      sph_flux_gas(nd_profile, 0: nd_layer+1)
 !       Flux with one absorber at the top of each layer for spherical geometry
   REAL (RealK) :: &
       layer_inc_flux &
@@ -531,8 +548,6 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 !       plus upward flux at bottom of layer)
     , layer_inc_k_flux &
 !       Layer incident k-weighted fluxes
-    , k_min(nd_profile, nd_layer) &
-!       Weak absorption for minor absorber
     , sum_weight
 !       Sum of the ESFT weights for a gas  
 
@@ -546,10 +561,11 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
       contrib_funcf_part(nd_flux_profile, nd_layer)
 !       Contribution (or weighting) function
 
+  REAL (RealK) :: templ
   REAL (RealK) :: temp(n_profile),temp_exp(n_profile)
-  REAL (RealK) :: temp_max = LOG(1.0_RealK/EPSILON(temp_max))
-  REAL (RealK) :: temp_max_sph = LOG(HUGE(temp_max_sph))/2.0_RealK
-  REAL (RealK) :: eps = EPSILON(eps)
+  REAL (RealK), PARAMETER :: temp_max = LOG(1.0_RealK/EPSILON(temp_max))
+  REAL (RealK), PARAMETER :: temp_max_sph = LOG(HUGE(temp_max_sph))/2.0_RealK
+  REAL (RealK), PARAMETER :: eps = EPSILON(eps)
 
   INTEGER :: path_base
   INTEGER :: lowest_lit(nd_profile)
@@ -570,6 +586,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
   i_abs=index_abs(1)
 
   IF (isolir == ip_solar) THEN
+    !STOP __LINE__
 
 !   An appropriate scaling factor is calculated for the direct
 !   beam, whilst the equivalent extinction for the diffuse beam
@@ -577,6 +594,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 !   at the surface.
 
 !   Initialize the scaling factors:
+    !$omp target teams distribute parallel do simd collapse(2)
     DO i=1, n_layer
       DO l=1, n_profile
         adjust_solar_ke(l, i)=1.0e+00_RealK
@@ -585,6 +603,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
       END DO
     END DO
     IF (control%l_spherical_solar) THEN
+      STOP __LINE__
       DO i=0, n_layer+1
         DO l=1, n_profile
           sph%common%adjust_solar_ke(l, i)=1.0e+00_RealK
@@ -608,6 +627,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
       IF (l_photol_only(i_abs_band)) CYCLE
 
       IF (n_abs_esft(i_abs_band) == 1 .AND. control%l_spherical_solar) THEN
+        STOP __LINE__
         ! If there is only 1 k-term for this absorber there is no need to
         ! calculate an equivalent extinction: the single absorption coefficient
         ! is added directly to the grey absorption.
@@ -621,6 +641,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 
 !     Initialize the normalized flux for the absorber.
       IF (control%l_spherical_solar) THEN
+        STOP __LINE__
         DO ii=0, n_layer+1
           DO l=1, n_profile
             sph_flux_gas(l, ii)=0.0e+00_RealK
@@ -637,19 +658,26 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
           END DO
         END DO
       ELSE
-        DO l=1, n_profile
-          flux_gas(l, 0)=1.0e+00_RealK
-          sum_flux(l, n_layer, j)=0.0e+00_RealK
-        END DO
+        !STOP __LINE__
+        !$omp target teams distribute parallel do simd collapse(2)
         DO i=1, n_layer
           DO l=1, n_profile
+            IF (i == 1) THEN
+              flux_gas(l, 0)=1.0e+00_RealK
+              sum_flux(l, n_layer, j)=0.0e+00_RealK
+            END IF
             flux_gas(l, i)=0.0e+00_RealK
             sum_k_flux(l, i, j)=0.0e+00_RealK
           END DO
         END DO
       END IF
 
-      k_min=HUGE(k_min)
+      DO i=1, n_layer
+        DO l=1, n_profile
+          k_min(i, l)=HUGE(k_min(1, 1))
+        END DO
+      END DO
+
       sum_weight=0.0_RealK
       DO iex=1, n_abs_esft(i_abs_band)
 
@@ -660,6 +688,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 !       The treatment of the direct beam and the contents of zen_0 depend
 !       on the mode of angular integration so we need three different loops.
         IF (control%l_spherical_solar) THEN
+          STOP __LINE__
           ! Calculate flux arriving at lowest lit layer through spherical path
           DO l=1,n_profile
             ii = lowest_lit(l)
@@ -673,21 +702,20 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
             flux_direct_term(l, ii)=esft_weight*temp_exp(l)
           END DO
         ELSE IF (i_angular_integration == ip_two_stream) THEN
+          !STOP __LINE__
+          !$omp target teams distribute parallel do simd &
+          !$omp& private(templ)
           DO l=1, n_profile
             flux_direct_term(l, 0)=esft_weight
-          END DO
-          DO i=1, n_layer
-            DO l=1, n_profile
-              temp(l)=-k_abs_layer(l, i, iex, i_abs_band) &
+            DO i=1, n_layer
+              templ=-k_abs_layer(l, i, iex, i_abs_band) &
                 *d_mass(l, i)*zen_0(l)
-            END DO
-            CALL exp_v(n_profile,temp,temp_exp)
-            DO l=1,n_profile
-              flux_direct_term(l, i)=flux_direct_term(l, i-1)*temp_exp(l)
+              flux_direct_term(l, i)=flux_direct_term(l, i-1)*exp(templ)
               flux_gas(l, i)=flux_gas(l, i)+flux_direct_term(l, i)
             END DO
           END DO
         ELSE IF (i_angular_integration == ip_spherical_harmonic) THEN
+          STOP __LINE__
           DO l=1, n_profile
             flux_direct_term(l, 0)=esft_weight
           END DO
@@ -703,6 +731,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 
 !       Calculate the increment in the absorptive extinction
         IF (control%l_spherical_solar) THEN
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               ! Use the flux at the lowest lit layer as the weight
@@ -720,6 +749,8 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
               = sum_flux(l, n_layer, j) + flux_direct_term(l, ii)
           END DO
         ELSE
+          !STOP __LINE__
+          !$omp target teams distribute parallel do simd collapse(2)
           DO i=1, n_layer
             DO l=1, n_profile
               sum_k_flux(l, i, j) &
@@ -728,17 +759,18 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
                 *flux_direct_term(l, n_layer)
               k_min(l, i)=MIN(k_min(l, i), &
                 k_abs_layer(l, i, iex, i_abs_band))
+              IF (i == 1) THEN
+                sum_flux(l, n_layer, j) &
+                  =sum_flux(l, n_layer, j)+flux_direct_term(l, n_layer)
+              END IF
             END DO
-          END DO
-          DO l=1, n_profile
-            sum_flux(l, n_layer, j) &
-              =sum_flux(l, n_layer, j)+flux_direct_term(l, n_layer)
           END DO
         END IF
 
       END DO
 
       IF (control%l_spherical_solar) THEN
+        STOP __LINE__
         n_strong = 0
         DO l=1, n_profile
           IF (sum_flux(l, n_layer, j) < trans_strong) THEN
@@ -769,6 +801,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
           END DO
         END DO
         IF (n_strong > 0) THEN
+          STOP __LINE__
           DO iex=1, n_abs_esft(i_abs_band)
             esft_weight=w_abs_esft(iex, i_abs_band)
             DO ii=0, n_layer+1
@@ -823,8 +856,10 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
           END DO
         END IF
       ELSE
+        !STOP __LINE__
 !       Set the equivalent extinction for the diffuse beam,
 !       weighting with the direct surface flux.
+        !$omp target teams distribute parallel do simd collapse(2)
         DO i=1, n_layer
           DO l=1, n_profile
             IF (sum_flux(l, n_layer, j) > 0.0e+00_RealK) THEN
@@ -853,6 +888,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 !   This may overflow for very large zenith angles (where the
 !   transmission is effectively zero) so we restrict to a max value.
     IF (control%l_spherical_solar) THEN
+      STOP __LINE__
       ! Correction for the spherical path to each layer
       DO ii=0,n_layer+1
         DO l=1,n_profile
@@ -880,16 +916,17 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
         END DO
       END DO
     ELSE IF (i_angular_integration == ip_two_stream) THEN
+      !STOP __LINE__
+      !$omp target teams distribute parallel do simd collapse(2) &
+      !$omp& private(templ)
       DO i=1, n_layer
         DO l=1, n_profile
-           temp(l) = MIN(k_eqv(l,i)*d_mass(l,i)*zen_0(l),temp_max)
-        END DO
-        CALL exp_v(n_profile,temp,temp_exp)
-        DO l=1,n_profile
-           adjust_solar_ke(l,i) = adjust_solar_ke(l,i)*temp_exp(l)
+           templ = MIN(k_eqv(l,i)*d_mass(l,i)*zen_0(l),temp_max)
+           adjust_solar_ke(l,i) = adjust_solar_ke(l,i)*exp(templ)
         END DO
       END DO
     ELSE IF (i_angular_integration == ip_spherical_harmonic) THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
            temp(l) = k_eqv(l,i)*d_mass(l,i)/zen_0(l)
@@ -902,18 +939,23 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
     END IF
 
   ELSE IF (isolir == ip_infra_red) THEN
+    !STOP __LINE__
 
 !   Calculate the diffuse albedo of the surface.
     IF (i_angular_integration == ip_two_stream) THEN
+      !STOP __LINE__
+      !$omp target teams distribute parallel do simd
       DO l=1, n_profile
         diffuse_albedo(l)=rho_alb(l, ip_surf_alb_diff)
       END DO
     ELSE IF (i_angular_integration == ip_ir_gauss) THEN
+      STOP __LINE__
 !     Only a non-reflecting surface is consistent with this option.
       DO l=1, n_profile
         diffuse_albedo(l)=0.0e+00_RealK
       END DO
     ELSE IF (i_angular_integration == ip_spherical_harmonic) THEN
+      STOP __LINE__
       DO l=1, n_profile
         diffuse_albedo(l)=rho_alb(l, 1)*diff_albedo_basis(1)
       END DO
@@ -924,6 +966,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
       END DO
     END IF
 
+    !$omp target teams distribute parallel do simd collapse(2)
     DO i=1, n_layer
       DO l=1, n_profile
         k_eqv(l, i)=0.0e+00_RealK
@@ -933,12 +976,14 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 
 !   Equivalent absorption is used for the minor gases.
     DO j=2, n_abs
+      !STOP __LINE__
 
       i_abs_band=index_abs(j)
       ! Ignore absorption for gases that only require photolysis rates
       IF (l_photol_only(i_abs_band)) CYCLE
 
       IF (n_abs_esft(i_abs_band) == 1 .AND. control%l_grey_single) THEN
+        STOP __LINE__
         ! If there is only 1 k-term for this absorber there is no need to
         ! calculate an equivalent extinction: the single absorption coefficient
         ! is added directly to the grey absorption.
@@ -951,6 +996,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
       END IF
 
 !     Initialize the sums to form the ratio to 0.
+      !$omp target teams distribute parallel do simd collapse(2)
       DO i=1, 2*n_layer+2
         DO l=1, n_profile
           sum_flux(l, i, j)=0.0e+00_RealK
@@ -958,7 +1004,13 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
         END DO
       END DO
 
-      k_min=HUGE(k_min)
+      !$omp target teams distribute parallel do simd collapse(2)
+      DO i=1, n_layer
+        DO l=1, n_profile
+          k_min(i, l)=HUGE(k_min(1, 1))
+        END DO
+      END DO
+
       DO iex=1, n_abs_esft(i_abs_band)
 
 !       Store the ESFT weight for future use.
@@ -966,6 +1018,8 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 
 !       Set the appropriate boundary terms for the
 !       total upward and downward fluxes at the boundaries.
+        !$omp target teams distribute parallel do simd &
+        !$omp& map(to: planck%flux, planck%flux_ground)
         DO l=1, n_profile
           flux_inc_direct(l)=0.0e+00_RealK
           flux_inc_down(l)=-planck%flux(l, 0)
@@ -974,6 +1028,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
         END DO
 
 !       Set the optical depths of each layer.
+        !$omp target teams distribute parallel do simd collapse(2)
         DO i=1, n_layer
           DO l=1, n_profile
             tau_gas(l, i) = k_abs_layer(l, i, iex, i_abs_band) * d_mass(l, i)
@@ -981,6 +1036,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
           END DO
         END DO
 
+        !STOP __LINE__
 !       Calculate the fluxes with just this gas.
         CALL monochromatic_gas_flux(n_profile, n_layer &
           , tau_gas &
@@ -990,8 +1046,10 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
           , diffusivity_factor_minor &
           , flux_direct_term, flux_term &
           , nd_profile, nd_layer &
+          , rworkpl1, rworkpl2 &
           )
 
+        !$omp target teams distribute parallel do simd collapse(2)
         DO i=2, 2*n_layer+1
           DO l=1, n_profile
             sum_k_flux(l, i, j)=sum_k_flux(l, i, j) &
@@ -1004,6 +1062,8 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 
       END DO
 
+      !$omp target teams distribute parallel do simd collapse(2) &
+      !$omp& private(layer_inc_flux, layer_inc_k_flux)
       DO i=1, n_layer
         DO l=1, n_profile
           layer_inc_k_flux=sum_k_flux(l, 2*i, j) &
@@ -1023,12 +1083,16 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
   END IF
 
 ! Augment the grey extinction with an effective value for each gas.
+  !$omp target teams distribute parallel do simd collapse(2) &
+  !$omp& map(ss_prop%k_grey_tot_clr)
   DO i=1, n_cloud_top-1
     DO l=1, n_profile
       ss_prop%k_grey_tot_clr(l, i)=ss_prop%k_grey_tot_clr(l, i) &
         +k_eqv(l, i)+k_grey(l, i)
     END DO
   END DO
+  !$omp target teams distribute parallel do simd collapse(2) &
+  !$omp& map(ss_prop%k_grey_tot)
   DO i=n_cloud_top, n_layer
     DO l=1, n_profile
       ss_prop%k_grey_tot(l, i, 0)=ss_prop%k_grey_tot(l, i, 0) &
@@ -1036,7 +1100,11 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
     END DO
   END DO
   IF (l_cloud) THEN
-    DO k=1, cld%n_cloud_type
+    !STOP __LINE__
+    n_cloud_type = cld%n_cloud_type
+    !$omp target teams distribute parallel do simd collapse(3) &
+    !$omp& map(ss_prop%k_grey_tot)
+    DO k=1, n_cloud_type
       DO i=n_cloud_top, n_layer
         DO l=1, n_profile
           ss_prop%k_grey_tot(l, i, k) &
@@ -1066,15 +1134,20 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
     IF ( (i_angular_integration == ip_two_stream).OR. &
          (i_angular_integration == ip_ir_gauss) ) THEN
 
+      !STOP __LINE__
       IF (isolir == ip_solar) THEN
+        !STOP __LINE__
 !       Solar region.
         IF (control%l_spherical_solar) THEN
+          STOP __LINE__
           DO l=1, n_profile
             d_planck_flux_surface(l) = 0.0e+00_RealK
             flux_inc_down(l)         = 0.0e+00_RealK
             flux_inc_direct(l)       = 0.0e+00_RealK
           END DO
         ELSE
+          !STOP __LINE__
+          !$omp target teams distribute parallel do simd
           DO l=1, n_profile
             d_planck_flux_surface(l)=0.0e+00_RealK
             flux_inc_down(l)=solar_irrad(l)/zen_0(l)
@@ -1082,7 +1155,10 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
           END DO
         END IF
       ELSE IF (isolir == ip_infra_red) THEN
+        !STOP __LINE__
 !       Infra-red region.
+        !$omp target teams distribute parallel do simd &
+        !$omp& map(to: planck%flux, planck%flux_ground)
         DO l=1, n_profile
           flux_inc_direct(l)=0.0e+00_RealK
           flux_direct_part(l, n_layer)=0.0e+00_RealK
@@ -1091,6 +1167,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
             =planck%flux_ground(l)-planck%flux(l, n_layer)
         END DO
         IF (l_clear) THEN
+          STOP __LINE__
           DO l=1, n_profile
             flux_direct_clear_part(l, n_layer)=0.0e+00_RealK
           END DO
@@ -1098,13 +1175,16 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
       END IF
 
     ELSE IF (i_angular_integration == ip_spherical_harmonic) THEN
+      STOP __LINE__
 
       IF (isolir == ip_solar) THEN
+        STOP __LINE__
         DO l=1, n_profile
           i_direct_part(l, 0)=solar_irrad(l)
           flux_inc_down(l)=0.0e+00_RealK
         END DO
       ELSE
+        STOP __LINE__
         DO l=1, n_profile
           flux_inc_down(l)=-planck%flux(l, 0)
           d_planck_flux_surface(l) &
@@ -1116,12 +1196,15 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 
 !   Set the absorption for this absorber and k-term.
     IF (l_photol_only(i_abs)) THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
           k_gas_abs(l, i) = 0.0_RealK
         END DO
       END DO
     ELSE
+      !STOP __LINE__
+      !$omp target teams distribute parallel do simd collapse(2)
       DO i=1, n_layer
         DO l=1, n_profile
           k_gas_abs(l, i) = k_abs_layer(l, i, iex, i_abs)
@@ -1130,6 +1213,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
     END IF
 
     IF (i_cloud == ip_cloud_mcica) THEN
+      STOP __LINE__
 
       CALL mcica_sample(ierr &
         , control, dimen, atm, cld, bound &
@@ -1175,7 +1259,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
         , n_column_slv, list_column_slv &
         , i_clm_lyr_chn, i_clm_cld_typ, area_column &
 !                   Additional variables required for McICA
-        , l_cloud_cmp, n_cloud_profile, i_cloud_profile &
+        , l_cloud_cmp, n_cloud, cloud_layer, cloud_profile &
         , i_cloud_type, nd_cloud_component, iex, i_band &
         , i_cloud_representation &
 !                   Levels for the calculation of radiances
@@ -1199,9 +1283,16 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
         , nd_max_order, nd_sph_coeff &
         , nd_brdf_basis_fnc, nd_brdf_trunc, nd_viewing_level &
         , nd_direction, nd_source_coeff &
+        ! Work arrays
+        , rworkp1, rworkp2, rworkp3 &
+        , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+        , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+        , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+        , rworkplsc1, rworkplsc2 &
         )
 
     ELSE
+      !STOP __LINE__
 
       CALL monochromatic_radiance(ierr &
         , control, atm, cld, bound &
@@ -1272,6 +1363,12 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
         , nd_max_order, nd_sph_coeff &
         , nd_brdf_basis_fnc, nd_brdf_trunc, nd_viewing_level &
         , nd_direction, nd_source_coeff, nd_k_term_inner_dummy &
+        ! Work arrays
+        , rworkp1, rworkp2, rworkp3 &
+        , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+        , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+        , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+        , rworkplsc1, rworkplsc2 &
         )
 
     END IF
@@ -1283,6 +1380,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
     IF (control%l_blue_flux_surf) &
       weight_blue_incr = spectrum%solar%weight_blue(i_band)*esft_weight
 
+    !STOP __LINE__
     CALL augment_radiance(control, spectrum, atm, bound, radout &
       , i_band, iex, iex_minor &
       , n_profile, n_layer, n_viewing_level, n_direction &
@@ -1304,19 +1402,24 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 
 !   Add in the increments from surface tiles
     IF (l_tile) THEN
+      STOP __LINE__
       IF ( (i_angular_integration == ip_two_stream).OR. &
            (i_angular_integration == ip_ir_gauss) ) THEN
+        STOP __LINE__   
         IF (control%l_spherical_solar) THEN
+          STOP __LINE__
           DO l=1, n_profile
             flux_direct_ground_part(l) &
               = sph%allsky%flux_direct(l, n_layer+1)
           END DO
         ELSE
+          STOP __LINE__
           DO l=1, n_profile
             flux_direct_ground_part(l) = flux_direct_part(l, n_layer)
           END DO          
         END IF
       END IF
+      STOP __LINE__
       CALL augment_tiled_radiance(control, spectrum, radout &
         , i_band, iex, iex_minor &
         , n_point_tile, n_tile, list_tile &
@@ -1326,7 +1429,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
         , rho_alb_tile &
 !                   Increments to radiances
         , flux_direct_ground_part &
-        , flux_total_part(1, 2*n_layer+2) &
+        , flux_total_part(:, 2*n_layer+2) &
         , planck%flux_tile, planck%flux(1, n_layer) &
 !                   Dimensions
         , nd_flux_profile, nd_point_tile, nd_tile &

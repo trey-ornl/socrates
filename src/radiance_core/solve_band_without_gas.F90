@@ -71,9 +71,16 @@ SUBROUTINE solve_band_without_gas(ierr                                  &
     , nd_brdf_basis_fnc, nd_brdf_trunc, nd_viewing_level                &
     , nd_direction, nd_source_coeff                                     &
     , nd_point_tile, nd_tile                                            &
+    ! Named work arrays
+    , flux_total_band &
+    ! Work arrays
+    , rworkp1, rworkp2, rworkp3 &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+    , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+    , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+    , rworkplsc1, rworkplsc2 &
     )
-
-
+  
   USE realtype_rd,  ONLY: RealK
   USE def_control,  ONLY: StrCtrl
   USE def_dimen,    ONLY: StrDim
@@ -376,7 +383,15 @@ SUBROUTINE solve_band_without_gas(ierr                                  &
       i_solver_clear
 !       Clear solver used
 
-
+! Named work arrays
+  REAL(RealK) :: flux_total_band(:, :)
+! Work arrays
+  REAL(RealK), DIMENSION(:) :: rworkp1, rworkp2, rworkp3
+  REAL(RealK), DIMENSION(:, :) :: &
+    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6, &       
+    rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12, &
+    rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18
+  REAL(RealK), DIMENSION(:, :, :) :: rworkplsc1, rworkplsc2
 
 ! Local variables.
   INTEGER :: i, l
@@ -408,8 +423,6 @@ SUBROUTINE solve_band_without_gas(ierr                                  &
 !       Increment to direct flux
     , flux_direct_ground_band(nd_flux_profile)                          &
 !       Increment to direct flux at the surface
-    , flux_total_band(nd_flux_profile, 2*nd_layer+2)                    &
-!       Increment to total flux
     , actinic_flux_band(nd_flux_profile, nd_layer)                      &
 !       Increment to actinic flux
     , flux_direct_clear_band(nd_flux_profile, 0: nd_layer)              &
@@ -451,6 +464,8 @@ SUBROUTINE solve_band_without_gas(ierr                                  &
 
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+  STOP __LINE__
 
 ! Set the appropriate total upward and downward fluxes
 ! at the boundaries.
@@ -585,6 +600,12 @@ SUBROUTINE solve_band_without_gas(ierr                                  &
     , nd_max_order, nd_sph_coeff                                        &
     , nd_brdf_basis_fnc, nd_brdf_trunc, nd_viewing_level                &
     , nd_direction, nd_source_coeff, nd_k_term_inner_dummy              &
+    ! Work arrays
+    , rworkp1, rworkp2, rworkp3 &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+    , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+    , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+    , rworkplsc1, rworkplsc2 &
     )
 
 ! Add the increments to the cumulative fluxes.
@@ -638,7 +659,7 @@ SUBROUTINE solve_band_without_gas(ierr                                  &
       , rho_alb_tile                                                    &
 !                   Increments to radiances
       , flux_direct_ground_band                                         &
-      , flux_total_band(1, 2*n_layer+2)                                 &
+      , flux_total_band(:, 2*n_layer+2)                                 &
       , planck%flux_tile, planck%flux(:, n_layer)                       &
 !                   Dimensions
       , nd_flux_profile, nd_point_tile, nd_tile                         &

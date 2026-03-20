@@ -198,6 +198,31 @@ CONTAINS
     ALLOCATE(ss_prop%forward_scatter_no_cloud                                  &
       (dimen%nd_profile, dimen%id_cloud_top: dimen%nd_layer))
 
+    !$omp target enter data &
+    !$omp& map(alloc: ss_prop) &
+    !$omp& map(alloc: ss_prop%forward_scatter) &
+    !$omp& map(alloc: ss_prop%forward_scatter_cloud_comp) &
+    !$omp& map(alloc: ss_prop%forward_scatter_clr) &
+    !$omp& map(alloc: ss_prop%forward_scatter_clr_csr) &
+    !$omp& map(alloc: ss_prop%forward_scatter_csr) &
+    !$omp& map(alloc: ss_prop%forward_solar) &
+    !$omp& map(alloc: ss_prop%k_ext_scat) &
+    !$omp& map(alloc: ss_prop%k_ext_scat_cloud_comp) &
+    !$omp& map(alloc: ss_prop%k_ext_scat_clr) &
+    !$omp& map(alloc: ss_prop%k_ext_tot_cloud_comp) &
+    !$omp& map(alloc: ss_prop%k_grey_tot) &
+    !$omp& map(alloc: ss_prop%k_grey_tot_clr) &
+    !$omp& map(alloc: ss_prop%omega) &
+    !$omp& map(alloc: ss_prop%omega_clr) &
+    !$omp& map(alloc: ss_prop%phase_fnc) &
+    !$omp& map(alloc: ss_prop%phase_fnc_cloud_comp) &
+    !$omp& map(alloc: ss_prop%phase_fnc_clr) &
+    !$omp& map(alloc: ss_prop%phase_fnc_solar) &
+    !$omp& map(alloc: ss_prop%tau) &
+    !$omp& map(alloc: ss_prop%tau_clr) &
+    !$omp& map(alloc: ss_prop%tau_clr_dir) &
+    !$omp& map(alloc: ss_prop%tau_dir)
+
   END SUBROUTINE allocate_ss_prop
 
   SUBROUTINE deallocate_ss_prop(ss_prop)
@@ -238,6 +263,8 @@ CONTAINS
     DEALLOCATE(ss_prop%phase_fnc_clr)
     DEALLOCATE(ss_prop%k_ext_scat_clr)
     DEALLOCATE(ss_prop%k_grey_tot_clr)
+
+    STOP "need to add omp target exit data"
 
   END SUBROUTINE deallocate_ss_prop
 END MODULE def_ss_prop

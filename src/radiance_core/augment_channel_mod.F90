@@ -165,6 +165,7 @@ SUBROUTINE augment_channel( &
 
       IF (control%l_flux_div) THEN
         IF (control%isolir == ip_solar .AND. control%l_spherical_solar) THEN
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div(l, i, i_channel) &
@@ -175,6 +176,7 @@ SUBROUTINE augment_channel( &
             END DO
           END DO
         ELSE
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div(l, i, i_channel) &
@@ -186,6 +188,7 @@ SUBROUTINE augment_channel( &
         END IF
         IF (control%isolir == ip_solar .AND. control%l_orog .AND. &
           .NOT. control%l_spherical_solar) THEN
+          STOP __LINE__
           DO l=1, n_profile
             radout%flux_div(l, n_layer, i_channel) &
               = radout%flux_div(l, n_layer, i_channel) &
@@ -193,7 +196,9 @@ SUBROUTINE augment_channel( &
               * (bound%orog_corr(l) - 1.0_RealK)/bound%orog_corr(l)
           END DO
         END IF
+        STOP __LINE__
         DO i_path=1, sp%photol%n_pathway
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div(l, i, i_channel) &
@@ -205,6 +210,7 @@ SUBROUTINE augment_channel( &
       END IF
       IF (control%isolir == ip_solar) THEN
         IF (control%l_spherical_solar) THEN
+          STOP __LINE__
           DO i=0, n_layer+1
             DO l=1, n_profile
               radout%flux_direct_sph(l, i, i_channel) &
@@ -218,6 +224,9 @@ SUBROUTINE augment_channel( &
             END DO
           END DO
         ELSE
+          !STOP __LINE__
+          !$omp target teams distribute parallel do simd collapse(2) &
+          !$omp& map(radout%flux_direct)
           DO i=0, n_layer
             DO l=1, n_profile
               radout%flux_direct(l, i, i_channel) &
@@ -226,6 +235,9 @@ SUBROUTINE augment_channel( &
           END DO
         END IF
       END IF
+      !STOP __LINE__
+      !$omp target teams distribute parallel do simd collapse(2) &
+      !$omp& map(radout%flux_up, radout%flux_down)
       DO i=0, n_layer
         DO l=1, n_profile
           radout%flux_up(l, i, i_channel) &
@@ -235,6 +247,9 @@ SUBROUTINE augment_channel( &
         END DO
       END DO
       IF (control%l_actinic_flux) THEN
+        !STOP __LINE__
+        !$omp target teams distribute parallel do simd collapse(2) &
+        !$omp& map(radout%actinic_flux)
         DO i=1, n_layer
           DO l=1, n_profile
             radout%actinic_flux(l, i, i_channel) &
@@ -243,6 +258,7 @@ SUBROUTINE augment_channel( &
         END DO
       END IF
       IF (control%l_photolysis_rate) THEN
+        STOP __LINE__
         DO i_path=1, sp%photol%n_pathway
           DO i=1, n_layer
             DO l=1, n_profile
@@ -253,6 +269,7 @@ SUBROUTINE augment_channel( &
         END DO
       END IF
       IF (control%l_photolysis_div) THEN
+        STOP __LINE__
         DO i_path=1, sp%photol%n_pathway
           DO i=1, n_layer
             DO l=1, n_profile
@@ -266,6 +283,7 @@ SUBROUTINE augment_channel( &
       IF (l_clear) THEN
         IF (control%l_flux_div) THEN
           IF (control%isolir == ip_solar .AND. control%l_spherical_solar) THEN
+            STOP __LINE__
             DO i=1, n_layer
               DO l=1, n_profile
                 radout%flux_div_clear(l, i, i_channel) &
@@ -278,6 +296,7 @@ SUBROUTINE augment_channel( &
               END DO
             END DO
           ELSE
+            STOP __LINE__
             DO i=1, n_layer
               DO l=1, n_profile
                 radout%flux_div_clear(l, i, i_channel) &
@@ -291,6 +310,7 @@ SUBROUTINE augment_channel( &
           END IF
           IF (control%isolir == ip_solar .AND. control%l_orog .AND. &
             .NOT. control%l_spherical_solar) THEN
+            STOP __LINE__
             DO l=1, n_profile
               radout%flux_div_clear(l, n_layer, i_channel) &
                 = radout%flux_div_clear(l, n_layer, i_channel) &
@@ -298,7 +318,9 @@ SUBROUTINE augment_channel( &
                 * (bound%orog_corr(l) - 1.0_RealK)/bound%orog_corr(l)
             END DO
           END IF
+          STOP __LINE__
           DO i_path=1, sp%photol%n_pathway
+            STOP __LINE__
             DO i=1, n_layer
               DO l=1, n_profile
                 radout%flux_div_clear(l, i, i_channel) &
@@ -310,6 +332,7 @@ SUBROUTINE augment_channel( &
         END IF
         IF (control%isolir == ip_solar) THEN
           IF (control%l_spherical_solar) THEN
+            STOP __LINE__
             DO i=0, n_layer+1
               DO l=1, n_profile
                 radout%flux_direct_clear_sph(l,i, i_channel) &
@@ -323,6 +346,7 @@ SUBROUTINE augment_channel( &
               END DO
             END DO
           ELSE
+            STOP __LINE__
             DO i=0, n_layer
               DO l=1, n_profile
                 radout%flux_direct_clear(l, i, i_channel) &
@@ -331,6 +355,7 @@ SUBROUTINE augment_channel( &
             END DO
           END IF
         END IF
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_up_clear(l, i, i_channel) &
@@ -340,6 +365,7 @@ SUBROUTINE augment_channel( &
           END DO
         END DO
         IF (control%l_actinic_flux_clear) THEN
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%actinic_flux_clear(l, i, i_channel) &
@@ -349,6 +375,7 @@ SUBROUTINE augment_channel( &
         END IF
       ELSE
         IF (control%l_flux_div) THEN
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div_clear(l, i, i_channel) = 0.0_RealK
@@ -357,6 +384,7 @@ SUBROUTINE augment_channel( &
         END IF
         IF (control%isolir == ip_solar) THEN
           IF (control%l_spherical_solar) THEN
+            STOP __LINE__
             DO i=0, n_layer+1
               DO l=1, n_profile
                 radout%flux_direct_clear_sph(l,i, i_channel) = 0.0_RealK
@@ -368,6 +396,9 @@ SUBROUTINE augment_channel( &
               END DO
             END DO
           ELSE
+            !STOP __LINE__
+            !$omp target teams distribute parallel do simd collapse(2) &
+            !$omp& map(radout%flux_direct_clear)
             DO i=0, n_layer
               DO l=1, n_profile
                 radout%flux_direct_clear(l, i, i_channel) = 0.0_RealK
@@ -375,6 +406,9 @@ SUBROUTINE augment_channel( &
             END DO
           END IF
         END IF
+        !STOP __LINE__
+        !$omp target teams distribute parallel do simd collapse(2) &
+        !$omp& map(radout%flux_up_clear, radout%flux_down_clear)
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_up_clear(l, i, i_channel) = 0.0_RealK
@@ -382,6 +416,7 @@ SUBROUTINE augment_channel( &
           END DO
         END DO
         IF (control%l_actinic_flux_clear) THEN
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%actinic_flux_clear(l, i, i_channel) = 0.0_RealK
@@ -391,6 +426,7 @@ SUBROUTINE augment_channel( &
       END IF
 
       IF (control%l_contrib_func) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%contrib_funci(l, i, i_channel) &
@@ -404,8 +440,11 @@ SUBROUTINE augment_channel( &
     ELSE IF ( (control%i_angular_integration == ip_spherical_harmonic).AND. &
               (control%i_sph_mode == ip_sph_mode_rad) ) THEN
 
+      STOP __LINE__
       DO k=1, n_direction
+        STOP __LINE__
         DO i=1, n_viewing_level
+          STOP __LINE__
           DO l=1, n_profile
             radout%radiance(l, i, k, i_channel) &
               = weight_channel_incr*radiance_incr(l, i, k)
@@ -416,7 +455,9 @@ SUBROUTINE augment_channel( &
     ELSE IF ( (control%i_angular_integration == ip_spherical_harmonic).AND. &
               (control%i_sph_mode == ip_sph_mode_j) ) THEN
 
+      STOP __LINE__
       DO i=1, n_viewing_level
+        STOP __LINE__
         DO l=1, n_profile
           radout%photolysis(l, i, i_channel) &
             = weight_channel_incr*photolysis_incr(l, i)
@@ -436,6 +477,7 @@ SUBROUTINE augment_channel( &
 
       IF (control%l_flux_div) THEN
         IF (control%isolir == ip_solar .AND. control%l_spherical_solar) THEN
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div(l, i, i_channel) &
@@ -446,6 +488,7 @@ SUBROUTINE augment_channel( &
             END DO
           END DO
         ELSE
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div(l, i, i_channel) &
@@ -457,6 +500,7 @@ SUBROUTINE augment_channel( &
         END IF
         IF (control%isolir == ip_solar .AND. control%l_orog .AND. &
           .NOT. control%l_spherical_solar) THEN
+          STOP __LINE__
           DO l=1, n_profile
             radout%flux_div(l, n_layer, i_channel) &
               = radout%flux_div(l, n_layer, i_channel) &
@@ -464,7 +508,9 @@ SUBROUTINE augment_channel( &
               * (bound%orog_corr(l) - 1.0_RealK)/bound%orog_corr(l)
           END DO
         END IF
+        STOP __LINE__
         DO i_path=1, sp%photol%n_pathway
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div(l, i, i_channel) &
@@ -476,6 +522,7 @@ SUBROUTINE augment_channel( &
       END IF
       IF (control%isolir == ip_solar) THEN
         IF (control%l_spherical_solar) THEN
+          STOP __LINE__
           DO i=0, n_layer+1
             DO l=1, n_profile
               radout%flux_direct_sph(l, i, i_channel) &
@@ -491,6 +538,9 @@ SUBROUTINE augment_channel( &
             END DO
           END DO
         ELSE
+          !STOP __LINE__
+          !$omp target teams distribute parallel do simd collapse(2) &
+          !$omp& map(radout%flux_direct)
           DO i=0, n_layer
             DO l=1, n_profile
               radout%flux_direct(l, i, i_channel) &
@@ -500,6 +550,9 @@ SUBROUTINE augment_channel( &
           END DO
         END IF
       END IF
+      !STOP __LINE__
+      !$omp target teams distribute parallel do simd collapse(2) &
+      !$omp& map(radout%flux_up, radout%flux_down)
       DO i=0, n_layer
         DO l=1, n_profile
           radout%flux_up(l, i, i_channel) &
@@ -511,6 +564,9 @@ SUBROUTINE augment_channel( &
         END DO
       END DO
       IF (control%l_actinic_flux) THEN
+        !STOP __LINE__
+        !$omp target teams distribute parallel do simd collapse(2) &
+        !$omp& map(radout%actinic_flux)
         DO i=1, n_layer
           DO l=1, n_profile
             radout%actinic_flux(l, i, i_channel) &
@@ -520,7 +576,9 @@ SUBROUTINE augment_channel( &
         END DO
       END IF
       IF (control%l_photolysis_rate) THEN
+        STOP __LINE__
         DO i_path=1, sp%photol%n_pathway
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%photolysis_rate(l, i, i_path, i_channel) &
@@ -531,7 +589,9 @@ SUBROUTINE augment_channel( &
         END DO
       END IF
       IF (control%l_photolysis_div) THEN
+        STOP __LINE__
         DO i_path=1, sp%photol%n_pathway
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%photolysis_div(l, i, i_path, i_channel) &
@@ -545,6 +605,7 @@ SUBROUTINE augment_channel( &
       IF (l_clear) THEN
         IF (control%l_flux_div) THEN
           IF (control%isolir == ip_solar .AND. control%l_spherical_solar) THEN
+            STOP __LINE__
             DO i=1, n_layer
               DO l=1, n_profile
                 radout%flux_div_clear(l, i, i_channel) &
@@ -558,6 +619,7 @@ SUBROUTINE augment_channel( &
               END DO
             END DO
           ELSE
+            STOP __LINE__
             DO i=1, n_layer
               DO l=1, n_profile
                 radout%flux_div_clear(l, i, i_channel) &
@@ -572,6 +634,7 @@ SUBROUTINE augment_channel( &
           END IF
           IF (control%isolir == ip_solar .AND. control%l_orog .AND. &
             .NOT. control%l_spherical_solar) THEN
+            STOP __LINE__
             DO l=1, n_profile
               radout%flux_div_clear(l, n_layer, i_channel) &
                 = radout%flux_div_clear(l, n_layer, i_channel) &
@@ -579,7 +642,9 @@ SUBROUTINE augment_channel( &
                 * (bound%orog_corr(l) - 1.0_RealK)/bound%orog_corr(l)
             END DO
           END IF
+          STOP __LINE__
           DO i_path=1, sp%photol%n_pathway
+            STOP __LINE__
             DO i=1, n_layer
               DO l=1, n_profile
                 radout%flux_div_clear(l, i, i_channel) &
@@ -591,6 +656,7 @@ SUBROUTINE augment_channel( &
         END IF
         IF (control%isolir == ip_solar) THEN
           IF (control%l_spherical_solar) THEN
+            STOP __LINE__
             DO i=0, n_layer+1
               DO l=1, n_profile
                 radout%flux_direct_clear_sph(l, i, i_channel) &
@@ -606,6 +672,7 @@ SUBROUTINE augment_channel( &
               END DO
             END DO
           ELSE
+            STOP __LINE__
             DO i=0, n_layer
               DO l=1, n_profile
                 radout%flux_direct_clear(l, i, i_channel) &
@@ -615,6 +682,7 @@ SUBROUTINE augment_channel( &
             END DO
           END IF
         END IF
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_up_clear(l, i, i_channel) &
@@ -626,6 +694,7 @@ SUBROUTINE augment_channel( &
           END DO
         END DO
         IF (control%l_actinic_flux_clear) THEN
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%actinic_flux_clear(l, i, i_channel) &
@@ -637,6 +706,7 @@ SUBROUTINE augment_channel( &
       END IF
 
       IF (control%l_contrib_func) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%contrib_funci(l, i, i_channel) &
@@ -652,8 +722,11 @@ SUBROUTINE augment_channel( &
     ELSE IF ( (control%i_angular_integration == ip_spherical_harmonic).AND. &
               (control%i_sph_mode == ip_sph_mode_rad) ) THEN
 
+      STOP __LINE__
       DO k=1, n_direction
+        STOP __LINE__
         DO i=1, n_viewing_level
+          STOP __LINE__
           DO l=1, n_profile
             radout%radiance(l, i, k, i_channel) &
               = radout%radiance(l, i, k, i_channel) &
@@ -665,7 +738,9 @@ SUBROUTINE augment_channel( &
     ELSE IF ( (control%i_angular_integration == ip_spherical_harmonic).AND. &
               (control%i_sph_mode == ip_sph_mode_j) ) THEN
 
+      STOP __LINE__
       DO i=1, n_viewing_level
+        STOP __LINE__
         DO l=1, n_profile
           radout%photolysis(l, i, i_channel) &
             = radout%photolysis(l, i, i_channel) &

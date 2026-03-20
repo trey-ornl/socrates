@@ -45,6 +45,8 @@ SUBROUTINE two_stream(ierr                                              &
     , flux_direct, flux_total                                           &
 !                 Dimensions
     , nd_profile, nd_layer, nd_source_coeff                             &
+    ! Work arrays
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
     )
 
 
@@ -135,7 +137,9 @@ SUBROUTINE two_stream(ierr                                              &
 !       Total fluxes
   TYPE(StrSphGeo), INTENT(INOUT) :: sph
 !       Spherical geometry fields
-
+! Work arrays
+  REAL (RealK), DIMENSION(:, :) :: &
+      rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5
 
 ! Local variables.
   REAL (RealK) ::                                                       &
@@ -165,6 +169,7 @@ SUBROUTINE two_stream(ierr                                              &
 ! Calculate the two-stream coefficients.
   IF ( (i_scatter_method == ip_scatter_full) .OR.                       &
        (i_scatter_method == ip_scatter_approx) ) THEN
+    STOP __LINE__
     CALL two_coeff(ierr, control                                        &
       , n_profile, 1, n_layer                                           &
       , i_2stream                                                       &
@@ -173,6 +178,7 @@ SUBROUTINE two_stream(ierr                                              &
       , trans, reflect, trans_0_dir, trans_0                            &
       , source_coeff                                                    &
       , nd_profile, 1, nd_layer, 1, nd_layer, nd_source_coeff           &
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
       )
   ELSE IF ( (i_scatter_method == ip_no_scatter_abs) .OR.                &
             (i_scatter_method == ip_no_scatter_ext) ) THEN

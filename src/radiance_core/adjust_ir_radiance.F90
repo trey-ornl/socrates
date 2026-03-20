@@ -72,12 +72,14 @@ SUBROUTINE adjust_ir_radiance(control, spectrum, atm, radout, &
     IF (spectrum%gas%n_band_absorb(i_band) > 0) THEN
       ! Sub-bands correspond to the major gas
       i_major = spectrum%gas%index_absorb(1, i_band)
+      STOP __LINE__
       DO iex=1, spectrum%gas%i_band_k(i_band, i_major)
         DO i_sub_k=1, spectrum%map%n_sub_band_k(iex, i_band)
           i_sub = spectrum%map%list_sub_band_k(i_sub_k, iex, i_band)
           i_channel = control%map_channel(i_sub)
           weight_channel_incr = control%weight_band(i_band) &
             * spectrum%map%weight_sub_band_k(i_sub_k, iex, i_band)
+          STOP __LINE__
           CALL adjust_ir_channel()
         END DO
       END DO
@@ -86,12 +88,14 @@ SUBROUTINE adjust_ir_radiance(control, spectrum, atm, radout, &
       i_sub = spectrum%map%list_sub_band_k(1, 1, i_band)
       i_channel = control%map_channel(i_sub)
       weight_channel_incr = control%weight_band(i_band)
+      STOP __LINE__
       CALL adjust_ir_channel()
     END IF
   ELSE
     ! Adjust the fluxes with bands mapping to channels
     i_channel = control%map_channel(i_band)
     weight_channel_incr = control%weight_band(i_band)
+    !STOP __LINE__
     CALL adjust_ir_channel()
   END IF
 
@@ -100,6 +104,7 @@ SUBROUTINE adjust_ir_radiance(control, spectrum, atm, radout, &
        (control%i_angular_integration == ip_ir_gauss) ) THEN
 
     IF (control%l_flux_up_band) THEN
+      STOP __LINE__
       DO i=0, atm%n_layer
         DO l=1, atm%n_profile
           radout%flux_up_band(l, i, i_band) = &
@@ -109,6 +114,7 @@ SUBROUTINE adjust_ir_radiance(control, spectrum, atm, radout, &
       END DO
     END IF
     IF (control%l_flux_down_band) THEN
+      STOP __LINE__
       DO i=0, atm%n_layer
         DO l=1, atm%n_profile
           radout%flux_down_band(l, i, i_band) = &
@@ -119,6 +125,7 @@ SUBROUTINE adjust_ir_radiance(control, spectrum, atm, radout, &
     END IF
     IF (l_clear) THEN
       IF (control%l_flux_up_clear_band) THEN
+        STOP __LINE__
         DO i=0, atm%n_layer
           DO l=1, atm%n_profile
             radout%flux_up_clear_band(l, i, i_band) = &
@@ -128,6 +135,7 @@ SUBROUTINE adjust_ir_radiance(control, spectrum, atm, radout, &
         END DO
       END IF
       IF (control%l_flux_down_clear_band) THEN
+        STOP __LINE__
         DO i=0, atm%n_layer
           DO l=1, atm%n_profile
             radout%flux_down_clear_band(l, i, i_band) = &
@@ -145,6 +153,7 @@ SUBROUTINE adjust_ir_radiance(control, spectrum, atm, radout, &
 !   be set appropriately above.
     IF (control%i_sph_mode == ip_sph_mode_flux) THEN
       IF (control%l_flux_up_band) THEN
+        STOP __LINE__
         DO i=0, atm%n_layer
           DO l=1, atm%n_profile
             radout%flux_up_band(l, i, i_band) = &
@@ -154,6 +163,7 @@ SUBROUTINE adjust_ir_radiance(control, spectrum, atm, radout, &
         END DO
       END IF
       IF (control%l_flux_down_band) THEN
+        STOP __LINE__
         DO i=0, atm%n_layer
           DO l=1, atm%n_profile
             radout%flux_down_band(l, i, i_band) = &
@@ -177,12 +187,19 @@ CONTAINS
 ! where sub-bands map to channels.
 SUBROUTINE adjust_ir_channel()
   IMPLICIT NONE
+  INTEGER :: n_layer, n_profile
 
   IF ( (control%i_angular_integration == ip_two_stream) .OR. &
        (control%i_angular_integration == ip_ir_gauss) ) THEN
 
-    DO i=0, atm%n_layer
-      DO l=1, atm%n_profile
+    !STOP __LINE__
+    n_layer = atm%n_layer
+    n_profile = atm%n_profile
+    !$omp target teams distribute parallel do simd collapse(2) &
+    !$omp& map(radout%flux_down, radout%flux_up) &
+    !$omp& map(to: planck%flux)
+    DO i=0, n_layer
+      DO l=1, n_profile
         radout%flux_up(l, i, i_channel) = &
           radout%flux_up(l, i, i_channel) &
           + planck%flux(l, i)*weight_channel_incr
@@ -192,6 +209,7 @@ SUBROUTINE adjust_ir_channel()
       END DO
     END DO
     IF (l_clear) THEN
+      STOP __LINE__
       DO i=0, atm%n_layer
         DO l=1, atm%n_profile
           radout%flux_up_clear(l, i, i_channel) = &
@@ -210,6 +228,7 @@ SUBROUTINE adjust_ir_channel()
 !   even when calculating fluxes. The number of levels should
 !   be set appropriately above.
     IF (control%i_sph_mode == ip_sph_mode_flux) THEN
+      STOP __LINE__
       DO i=0, atm%n_layer
         DO l=1, atm%n_profile
           radout%flux_up(l, i, i_channel) = &
@@ -221,6 +240,7 @@ SUBROUTINE adjust_ir_channel()
         END DO
       END DO
     ELSE IF (control%i_sph_mode == ip_sph_mode_rad) THEN
+      STOP __LINE__
       DO id=1, atm%n_direction
         DO i=1, atm%n_viewing_level
           DO l=1, atm%n_profile

@@ -84,6 +84,12 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
     , nd_brdf_basis_fnc, nd_brdf_trunc, nd_viewing_level                &
     , nd_direction, nd_source_coeff                                     &
     , nd_k_term_inner                                                   &
+    ! Work arrays
+    , rworkp1, rworkp2, rworkp3 &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+    , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+    , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+    , rworkplsc1, rworkplsc2 &
     )
 
 
@@ -402,6 +408,13 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
   REAL (RealK), INTENT(INOUT) ::                                        &
       contrib_funcf_part(nd_flux_profile, nd_layer, nd_k_term_inner)
 !       Contribution function (flux)
+! Work arrays
+  REAL(RealK), DIMENSION(:) :: rworkp1, rworkp2, rworkp3
+  REAL(RealK), DIMENSION(:, :) :: &
+    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6, &
+    rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12, &
+    rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18
+  REAL(RealK), DIMENSION(:, :, :) :: rworkplsc1, rworkplsc2
 
 ! Local variables.
   INTEGER                                                               &
@@ -434,6 +447,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
 !   absorption.
 
 
+    !STOP __LINE__
     CALL single_scattering_all(i_scatter_method                           &
 !                 Atmospheric properties
       , n_profile, n_layer, d_mass                                        &
@@ -449,9 +463,11 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
     IF ( (i_angular_integration == ip_two_stream).OR.                     &
          (i_angular_integration == ip_spherical_harmonic) ) THEN
 
+      !STOP __LINE__
 !     Rescale the optical depth and albedo of single scattering.
       IF (l_rescale) THEN
 
+        !STOP __LINE__
         !-----------------------------------------------------------------
         ! For direct solar flux, the optical depth can be scaled by three
         ! options: 
@@ -461,6 +477,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
         ! ip_direct_delta_scaling - Delta-Eddington scaling
         !-----------------------------------------------------------------
         IF (control%i_direct_tau == ip_direct_csr_scaling) THEN
+          STOP __LINE__
           ! Rescale tau by CSR forward fraction
           ! Above cloud top.
           CALL rescale_tau_csr(n_profile                                  &
@@ -479,6 +496,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
              , nd_profile, nd_layer, id_ct                                &
              )
         ELSE IF (control%i_direct_tau == ip_direct_noscaling) THEN
+          STOP __LINE__
           DO i=1, n_cloud_top-1
             DO l=1, n_profile
               ss_prop%tau_clr_dir(l,i) = ss_prop%tau_clr(l,i)
@@ -491,6 +509,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
           END DO
         END IF
 
+        !STOP __LINE__
         CALL rescale_tau_omega(n_profile, 1, n_cloud_top-1                &
           , ss_prop%tau_clr, ss_prop%omega_clr                            &
           , ss_prop%forward_scatter_clr                                   &
@@ -504,8 +523,10 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
 
         IF (l_cloud) THEN
 
+          !STOP __LINE__
           IF (control%i_direct_tau == ip_direct_csr_scaling) THEN
             DO k=1, cld%n_cloud_type  
+              STOP __LINE__
               CALL rescale_tau_csr(n_profile                              &
                  , n_cloud_top, n_layer                                   &
                  , ss_prop%forward_scatter_csr(:, :, k)                   &
@@ -516,6 +537,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
                  )
             END DO
           ELSE IF (control%i_direct_tau == ip_direct_noscaling) THEN
+            STOP __LINE__
             DO k=1, cld%n_cloud_type
               DO i=n_cloud_top, n_layer
                 DO l=1, n_profile
@@ -525,6 +547,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
             END DO
           END IF
           DO k=1, cld%n_cloud_type
+            !STOP __LINE__
             CALL rescale_tau_omega(n_profile, n_cloud_top, n_layer        &
               , ss_prop%tau(:, :, k), ss_prop%omega(:, :, k)              &
               , ss_prop%forward_scatter(:, :, k)                          &
@@ -540,6 +563,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
 
 
     IF (control%l_spherical_solar) THEN
+      STOP __LINE__
       CALL spherical_trans_coeff(n_profile, n_layer, n_cloud_top,         &
         ss_prop, sph)
     END IF
@@ -550,6 +574,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
 
     IF (i_angular_integration == ip_two_stream) THEN
 
+      !STOP __LINE__
 !     The standard two-stream approximations.
       CALL monochromatic_radiance_tseq(ierr                               &
         , control, cld, bound                                             &
@@ -595,11 +620,18 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
         , nd_profile, nd_layer, nd_layer_clr, id_ct, nd_column            &
         , nd_cloud_type, nd_region, nd_overlap_coeff                      &
         , nd_source_coeff, nd_max_order                                   &
+        ! Work arrays
+        , rworkp1, rworkp2, rworkp3 &
+        , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+        , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+        , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+        , rworkplsc1, rworkplsc2 &
         )
 
 
     ELSE IF (i_angular_integration == ip_spherical_harmonic) THEN
 
+      STOP __LINE__
 !     The spherical harmonic option:
       CALL monochromatic_radiance_sph(ierr                                &
 !                   Atmospheric Propertries
@@ -652,6 +684,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
 
     ELSE IF (i_angular_integration == ip_ir_gauss) THEN
 
+      STOP __LINE__
 !     Full angular resolution using Gaussian integration.
 
       ALLOCATE(tau_clr_f(nd_profile, nd_layer))
@@ -666,6 +699,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
         END DO
       END DO
 
+      STOP __LINE__
       CALL gauss_angle(n_profile, n_layer                                 &
         , n_order_gauss                                                   &
         , tau_clr_f                                                       &
@@ -682,6 +716,7 @@ SUBROUTINE monochromatic_radiance(ierr                                  &
 
 !   Calculate the contribution function
     IF (control%l_contrib_func .OR. control%l_contrib_func_band) THEN
+      STOP __LINE__
       CALL calc_contrib_func(n_profile, n_layer, n_cloud_top              &
         , atm%p_level, planck%flux, ss_prop                               &
         , contrib_funci_part(:,:,i_n_term_inner)                          &

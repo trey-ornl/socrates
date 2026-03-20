@@ -81,8 +81,15 @@ SUBROUTINE solve_band_random_overlap_resort_rebin(ierr                         &
     , nd_brdf_basis_fnc, nd_brdf_trunc, nd_viewing_level                       &
     , nd_direction, nd_source_coeff                                            &
     , nd_point_tile, nd_tile                                                   &
+    ! Named work arrays
+    , flux_total_part &
+    ! Work arrays
+    , rworkp1, rworkp2, rworkp3 &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+    , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+    , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+    , rworkplsc1, rworkplsc2 &
     )
-
 
   USE realtype_rd,  ONLY: RealK
   USE def_control,  ONLY: StrCtrl
@@ -414,7 +421,16 @@ SUBROUTINE solve_band_random_overlap_resort_rebin(ierr                         &
       i_direct(nd_radiance_profile, 0: nd_layer)
 !       Direct solar irradiance on levels
 
-
+! Named work arrays
+  REAL(RealK) :: flux_total_part(:, :)
+!       Partial total flux
+! Work arrays
+  REAL(RealK), DIMENSION(:) :: rworkp1, rworkp2, rworkp3
+  REAL(RealK), DIMENSION(:, :) :: &
+    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6, &
+    rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12, &
+    rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18
+  REAL(RealK), DIMENSION(:, :, :) :: rworkplsc1, rworkplsc2
 
 ! Local variables.
   INTEGER ::                                                                   &
@@ -495,8 +511,6 @@ SUBROUTINE solve_band_random_overlap_resort_rebin(ierr                         &
 !       Partial direct flux
     , flux_direct_ground_part(nd_flux_profile)                                 &
 !       Partial direct flux at the surface
-    , flux_total_part(nd_flux_profile, 2*nd_layer+2)                           &
-!       Partial total flux
     , actinic_flux_part(nd_flux_profile, nd_layer)                             &
 !       Partial actinic flux
     , flux_direct_clear_part(nd_flux_profile, 0: nd_layer)                     &
@@ -541,6 +555,8 @@ SUBROUTINE solve_band_random_overlap_resort_rebin(ierr                         &
 
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
+
+  STOP __LINE__
   
 ! Set target weights using Gaussian quadrature
   n_esft_red = n_esft_red_in
@@ -776,6 +792,12 @@ SUBROUTINE solve_band_random_overlap_resort_rebin(ierr                         &
       , nd_max_order, nd_sph_coeff                                             &
       , nd_brdf_basis_fnc, nd_brdf_trunc, nd_viewing_level                     &
       , nd_direction, nd_source_coeff, nd_k_term_inner_dummy                   &
+      ! Work arrays
+      , rworkp1, rworkp1, rworkp2 &
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+      , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+      , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+      , rworkplsc1, rworkplsc2 &
       )
 
 !   Increment the fluxes within the band.
@@ -829,7 +851,7 @@ SUBROUTINE solve_band_random_overlap_resort_rebin(ierr                         &
         , rho_alb_tile                                                         &
 !                   Increments to radiances
         , flux_direct_ground_part                                              &
-        , flux_total_part(1, 2*n_layer+2)                                      &
+        , flux_total_part(:, 2*n_layer+2)                                      &
         , planck%flux_tile, planck%flux(:, n_layer)                            &
 !                   Dimensions
         , nd_flux_profile, nd_point_tile, nd_tile                              &

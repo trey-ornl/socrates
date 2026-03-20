@@ -18,11 +18,10 @@
 MODULE circumsolar_fraction_mod
 IMPLICIT NONE
 CONTAINS
-SUBROUTINE circumsolar_fraction(n_profile                               &
-    , indx, half_angle                                                  &
+SUBROUTINE circumsolar_fraction( &
+      half_angle                                                  &
     , asymmetry_factor                                                  &
     , forward_scatter_csr                                               &
-    , nd_profile                                                        &
     )
 
   USE realtype_rd, ONLY: RealK
@@ -30,31 +29,20 @@ SUBROUTINE circumsolar_fraction(n_profile                               &
 
   IMPLICIT NONE
 
-! Sizes of arrays
-  INTEGER, INTENT(IN) ::                                                &
-       nd_profile                                                       &
-!       Size allocated for profiles
-    , indx(nd_profile)
-!       Indices satifying the test
 ! Dummy arguments.
-  INTEGER, INTENT(IN) ::                                                &
-      n_profile                                                         
-!       Number of profiles
   REAL (RealK), INTENT(IN) ::                                           &
-      asymmetry_factor(nd_profile)                                      &
+      asymmetry_factor &
 !       Asymmetry factor (first moment of phase function)
     , half_angle
 !       Half angle of pyrheliometer instrument FOV  
 !
   REAL  (RealK), Intent(OUT) ::                                         &
-      forward_scatter_csr(nd_profile)
+      forward_scatter_csr
 !       Forward scattering in circumsolar region
 !
 ! Local variables.
   INTEGER                                                               &
-      l                                                                 &
-!       Loop variable
-    , k                                                                 &
+      k                                                                 &
 !       Loop variable
     , ind_ang
 !      index of half angle and cos_half_angle(angle_ind)=cos(half_angle)
@@ -74,16 +62,12 @@ SUBROUTINE circumsolar_fraction(n_profile                               &
   p_legendre_2d = reshape(p_legendre, (/32,20/))
   forward_scatter_csr=0.0
   DO k=2, nstream-1
-     DO l=1, n_profile
-        forward_scatter_csr(indx(l))=forward_scatter_csr(indx(l))        &
-          +asymmetry_factor(indx(l))**(k-1)                              &
-          *(p_legendre_2d(k-1, ind_ang) - p_legendre_2d(k+1, ind_ang))
-     END DO
+    forward_scatter_csr=forward_scatter_csr        &
+      +asymmetry_factor**(k-1)                              &
+      *(p_legendre_2d(k-1, ind_ang) - p_legendre_2d(k+1, ind_ang))
   END DO
-  DO l=1, n_profile
-    forward_scatter_csr(indx(l))=0.5*(one_minus_cos                      &
-      +forward_scatter_csr(indx(l)))
-  END DO
+  forward_scatter_csr=0.5*(one_minus_cos                      &
+    +forward_scatter_csr)
 ! 
 END SUBROUTINE circumsolar_fraction
 END MODULE circumsolar_fraction_mod

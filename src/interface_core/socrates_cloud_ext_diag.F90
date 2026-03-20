@@ -64,9 +64,9 @@ integer :: i_band, k, i, ii, l, ll
 !   Loop variables
 integer :: n_cloud_top
 !   Topmost cloudy layer
-integer :: n_cloud_profile(dimen%id_cloud_top:dimen%nd_layer)
-!   Number of cloudy profiles
-integer :: i_cloud_profile(dimen%nd_profile, dimen%id_cloud_top:dimen%nd_layer)
+integer :: n_cloud
+integer, save, allocatable :: cloud_layer(:), cloud_profile(:)
+
 !   Profiles containing clouds
 real(RealK) :: solar_fraction
 !   Fraction of solar flux in band
@@ -85,7 +85,7 @@ if (control%i_cloud_representation /= ip_cloud_off .and. &
 
   call set_cloud_geometry(atm%n_profile, atm%n_layer, &
     .false., cld%w_cloud, &
-    n_cloud_top, n_cloud_profile, i_cloud_profile, &
+    n_cloud_top, n_cloud, cloud_layer, cloud_profile, &
     dimen%nd_profile, dimen%nd_layer, dimen%id_cloud_top)
 
   do i_band=control%first_band, control%last_band
@@ -98,7 +98,7 @@ if (control%i_cloud_representation /= ip_cloud_off .and. &
         select case (cld%i_condensed_param(k))
         case (ip_drop_pade_2)
           call opt_prop_pade_2(dimen%id_cloud_top, &
-            n_cloud_top, atm%n_layer, n_cloud_profile, i_cloud_profile, &
+            n_cloud_top, atm%n_layer, n_cloud, cloud_layer, cloud_profile, &
             cld%condensed_param_list(:, k, i_band), &
             cld%condensed_mix_ratio(:, :, k), &
             cld%condensed_dim_char(:, :, k), &
@@ -113,21 +113,21 @@ if (control%i_cloud_representation /= ip_cloud_off .and. &
         select case (cld%i_condensed_param(k))
         case (ip_ice_pade_2_phf)
           call opt_prop_pade_2(dimen%id_cloud_top, &
-            n_cloud_top, atm%n_layer, n_cloud_profile, i_cloud_profile, &
+            n_cloud_top, atm%n_layer, n_cloud, cloud_layer, cloud_profile, &
             cld%condensed_param_list(:, k, i_band), &
             cld%condensed_mix_ratio(:, :, k), &
             cld%condensed_dim_char(:, :, k), &
             k_ext_tot_cloud_comp)
         case (ip_ice_fu_phf)
           call opt_prop_fu_phf(dimen%id_cloud_top, &
-            n_cloud_top, atm%n_layer, n_cloud_profile, i_cloud_profile, &
+            n_cloud_top, atm%n_layer, n_cloud, cloud_layer, cloud_profile, &
             cld%condensed_param_list(:, k, i_band), &
             cld%condensed_mix_ratio(:, :, k), &
             cld%condensed_dim_char(:, :, k), &
             k_ext_tot_cloud_comp)
         case (ip_ice_baran)
           call opt_prop_baran(dimen%id_cloud_top, &
-            n_cloud_top, atm%n_layer, n_cloud_profile, i_cloud_profile, &
+            n_cloud_top, atm%n_layer, n_cloud, cloud_layer, cloud_profile, &
             cld%condensed_param_list(:, k, i_band), &
             cld%condensed_mix_ratio(:, :, k), &
             cld%condensed_dim_char(:, :, k), atm%t, &
@@ -140,28 +140,26 @@ if (control%i_cloud_representation /= ip_cloud_off .and. &
         end select
       end select
       if (l_last) then
-        do i=n_cloud_top, atm%n_layer
+        do ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
           ii = abs(layer_offset-i)
-          do ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
-            cloud_solar_extinction(ii, list(l)) &
-              = cloud_solar_extinction(ii, list(l)) &
-              + real( k_ext_tot_cloud_comp(l, i) &
-              * cld%frac_cloud(l, i, cld%i_cloud_type(k)) &
-              * solar_fraction, RealExt )
-          end do
+          cloud_solar_extinction(ii, list(l)) &
+            = cloud_solar_extinction(ii, list(l)) &
+            + real( k_ext_tot_cloud_comp(l, i) &
+            * cld%frac_cloud(l, i, cld%i_cloud_type(k)) &
+            * solar_fraction, RealExt )
         end do
       else
-        do i=n_cloud_top, atm%n_layer
+        do ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
           ii = abs(layer_offset-i)
-          do ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
-            cloud_solar_extinction(list(l), ii) &
-              = cloud_solar_extinction(list(l), ii) &
-              + real( k_ext_tot_cloud_comp(l, i) &
-              * cld%frac_cloud(l, i, cld%i_cloud_type(k)) &
-              * solar_fraction, RealExt )
-          end do
+          cloud_solar_extinction(list(l), ii) &
+            = cloud_solar_extinction(list(l), ii) &
+            + real( k_ext_tot_cloud_comp(l, i) &
+            * cld%frac_cloud(l, i, cld%i_cloud_type(k)) &
+            * solar_fraction, RealExt )
         end do
       end if
     end do

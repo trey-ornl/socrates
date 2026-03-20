@@ -38,7 +38,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
     , n_opt_level_aerosol_prsc, aerosol_pressure_prsc                   &
     , aerosol_absorption_prsc, aerosol_scattering_prsc                  &
     , aerosol_phase_fnc_prsc                                            &
-    , n_cloud_profile, i_cloud_profile                                  &
+    , n_cloud, cloud_layer, cloud_profile &
     , n_cloud_top, n_condensed, l_cloud_cmp, i_phase_cmp                &
     , i_condensed_param, condensed_param_list                           &
     , condensed_mix_ratio, condensed_dim_char                           &
@@ -64,6 +64,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
     , nd_max_order, nd_direction                                        &
     , nd_ukca_mode, nd_profile_aerosol_prsc, nd_profile_cloud_prsc      &
     , nd_opt_level_aerosol_prsc, nd_opt_level_cloud_prsc                &
+    , rayleigh_coeff, rworkpl1 &
     )
 
 
@@ -306,12 +307,10 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 !       Topmost cloudy layer
     , n_cloud_type                                                      &
 !       Number of types of clouds
-    , n_cloud_profile(id_ct: nd_layer)                                  &
-!       Number of cloudy profiles in each layer
-    , i_cloud_profile(nd_profile, id_ct: nd_layer)                      &
-!       Profiles containing clouds
     , i_cloud_type(nd_cloud_component)
 !       Types of cloud to which each component contributes
+
+  INTEGER, INTENT(IN) :: n_cloud, cloud_layer(:), cloud_profile(:)
 
 ! Microphysical quantities:
   INTEGER, INTENT(IN) ::                                                &
@@ -400,6 +399,10 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
     , cnv_cloud_absorptivity(nd_profile, nd_layer)
 !       Mean convective cloud absorptivity
 
+! Work arrays
+  REAL (RealK) :: rayleigh_coeff(:, :)
+!       Calculated total Rayleigh coefficient
+  REAL (RealK) :: rworkpl1(:, :)
 
 
 ! Local variables.
@@ -422,12 +425,8 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 !       Number of indices satisfying the test
     , indx(nd_profile)
 !       Indices satifying the test
-  REAL (RealK) ::                                                       &
-      rayleigh_coeff(nd_profile, nd_layer)
-!       Calculated total Rayleigh coefficient
-
 ! Temporary variable for the divisions
-  REAL (RealK) :: tmp_inv(nd_profile)
+  REAL (RealK) :: tmp_inv
 
   REAL (RealK), PARAMETER :: tiny_k=TINY(ss_prop%k_ext_scat)
 
@@ -443,6 +442,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 
 ! If using a separate solar phase function that must be initialized.
   IF (l_solar_phf) THEN
+    STOP __LINE__
     DO id=1, n_direction
       DO i=1, n_cloud_top-1
         DO l=1, n_profile
@@ -480,12 +480,19 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 
     CASE (ip_rayleigh_total)
 !     Rayleigh scattering coefficients are tabulated for total gas
-      rayleigh_coeff(1:n_profile, 1:n_layer) = rayleigh_coeff_tot
+      !rayleigh_coeff(1:n_profile, 1:n_layer) = rayleigh_coeff_tot
+      !$omp target teams distribute parallel do simd collapse(2)
+      DO l=1, n_profile
+        DO i=1, n_layer
+          rayleigh_coeff(l, i) = rayleigh_coeff_tot
+        END DO
+      END DO
     
     CASE (ip_rayleigh_custom)
 !     Compute Rayleigh scattering coefficient of total gas from individual
 !     coefficients for each gas ignoring non-ideal gas effects due to water
 !     vapour
+      STOP __LINE__
       DO l=1, n_profile
         DO i=1, n_layer
           rayleigh_coeff(l, i) &
@@ -505,27 +512,31 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 !   Forward scattering is required only when delta-rescaling
 !   is performed.
     IF (control%l_rescale) THEN
-      DO i=1, n_cloud_top-1
-!CDIR NODEP
+      !$omp target teams distribute parallel do simd collapse(2) &
+      !$omp& map(ss_prop%k_grey_tot_clr, ss_prop%k_ext_scat_clr) &
+      !$omp& map(ss_prop%phase_fnc_clr, ss_prop%phase_fnc) &
+      !$omp& map(ss_prop%forward_scatter_clr, ss_prop%forward_scatter_clr_csr) &
+      !$omp& map(ss_prop%k_grey_tot, ss_prop%k_ext_scat) &
+      !$omp& map(ss_prop%forward_scatter, ss_prop%forward_scatter_csr)
+      DO i=1, n_layer
         DO l=1, n_profile
-          ss_prop%k_grey_tot_clr(l, i)=0.0_RealK
-          ss_prop%k_ext_scat_clr(l, i)=rayleigh_coeff(l, i)
-          ss_prop%phase_fnc_clr(l, i, 1)=0.0_RealK
-          ss_prop%forward_scatter_clr(l, i)=0.0_RealK
-          ss_prop%forward_scatter_clr_csr(l, i)=0.0_RealK
-        END DO
-      END DO
-      DO i=n_cloud_top, n_layer
-!CDIR NODEP
-        DO l=1, n_profile
-          ss_prop%k_grey_tot(l, i, 0)=0.0_RealK
-          ss_prop%k_ext_scat(l, i, 0)=rayleigh_coeff(l, i)
-          ss_prop%phase_fnc(l, i, 1, 0)=0.0_RealK
-          ss_prop%forward_scatter(l, i, 0)=0.0_RealK
-          ss_prop%forward_scatter_csr(l, i, 0)=0.0_RealK
+          IF (i < n_cloud_top) THEN
+            ss_prop%k_grey_tot_clr(l, i)=0.0_RealK
+            ss_prop%k_ext_scat_clr(l, i)=rayleigh_coeff(l, i)
+            ss_prop%phase_fnc_clr(l, i, 1)=0.0_RealK
+            ss_prop%forward_scatter_clr(l, i)=0.0_RealK
+            ss_prop%forward_scatter_clr_csr(l, i)=0.0_RealK
+          ELSE
+            ss_prop%k_grey_tot(l, i, 0)=0.0_RealK
+            ss_prop%k_ext_scat(l, i, 0)=rayleigh_coeff(l, i)
+            ss_prop%phase_fnc(l, i, 1, 0)=0.0_RealK
+            ss_prop%forward_scatter(l, i, 0)=0.0_RealK
+            ss_prop%forward_scatter_csr(l, i, 0)=0.0_RealK
+          END IF
         END DO
       END DO
     ELSE
+      STOP __LINE__
       DO i=1, n_cloud_top-1
 !CDIR NODEP
         DO l=1, n_profile
@@ -546,6 +557,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 
 !   Only the second Lengendre polynomial contributes.
     IF (n_order_phase >= 2) THEN
+      STOP __LINE__
       DO i=1, n_cloud_top-1
         DO l=1, n_profile
           ss_prop%phase_fnc_clr(l, i, 2)=rayleigh_coeff(l, i)*1.0e-01_RealK
@@ -575,6 +587,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 
     IF (l_solar_phf) THEN
 
+      STOP __LINE__
       DO id=1, n_direction
         DO i=1, n_cloud_top-1
           DO l=1, n_profile
@@ -599,27 +612,31 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
   ELSE
 
     IF (control%l_rescale) THEN
-      DO i=1, n_cloud_top-1
-!CDIR NODEP
+      !$omp target teams distribute parallel do simd collapse(2) &
+      !$omp& map(ss_prop%k_grey_tot_clr, ss_prop%k_ext_scat_clr) &
+      !$omp& map(ss_prop%phase_fnc_clr, ss_prop%phase_fnc) &
+      !$omp& map(ss_prop%forward_scatter_clr, ss_prop%forward_scatter_clr_csr) &
+      !$omp& map(ss_prop%k_grey_tot, ss_prop%k_ext_scat) &
+      !$omp& map(ss_prop%forward_scatter, ss_prop%forward_scatter_csr)
+      DO i=1, n_layer
         DO l=1, n_profile
-          ss_prop%k_grey_tot_clr(l, i)=0.0_RealK
-          ss_prop%k_ext_scat_clr(l, i)=0.0_RealK
-          ss_prop%phase_fnc_clr(l, i, 1)=0.0_RealK
-          ss_prop%forward_scatter_clr(l, i)=0.0_RealK
-          ss_prop%forward_scatter_clr_csr(l, i)=0.0_RealK
-        END DO
-      END DO
-      DO i=n_cloud_top, n_layer
-!CDIR NODEP
-        DO l=1, n_profile
-          ss_prop%k_grey_tot(l, i, 0)=0.0_RealK
-          ss_prop%k_ext_scat(l, i, 0)=0.0_RealK
-          ss_prop%phase_fnc(l, i, 1, 0)=0.0_RealK
-          ss_prop%forward_scatter(l, i, 0)=0.0_RealK
-          ss_prop%forward_scatter_csr(l, i, 0)=0.0_RealK
+          IF (i < n_cloud_top) THEN
+            ss_prop%k_grey_tot_clr(l, i)=0.0_RealK
+            ss_prop%k_ext_scat_clr(l, i)=0.0_RealK
+            ss_prop%phase_fnc_clr(l, i, 1)=0.0_RealK
+            ss_prop%forward_scatter_clr(l, i)=0.0_RealK
+            ss_prop%forward_scatter_clr_csr(l, i)=0.0_RealK
+          ELSE
+            ss_prop%k_grey_tot(l, i, 0)=0.0_RealK
+            ss_prop%k_ext_scat(l, i, 0)=0.0_RealK
+            ss_prop%phase_fnc(l, i, 1, 0)=0.0_RealK
+            ss_prop%forward_scatter(l, i, 0)=0.0_RealK
+            ss_prop%forward_scatter_csr(l, i, 0)=0.0_RealK
+          END IF
         END DO
       END DO
     ELSE
+      STOP __LINE__
       DO i=1, n_cloud_top-1
 !CDIR NODEP
         DO l=1, n_profile
@@ -637,15 +654,16 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
         END DO
       END DO
     END IF
+    !$omp target teams distribute parallel do simd collapse(3) &
+    !$omp& map(ss_prop%phase_fnc_clr, ss_prop%phase_fnc)
     DO ls=2, n_order_phase
-      DO i=1, n_cloud_top-1
+      DO i=1, n_layer
         DO l=1, n_profile
-          ss_prop%phase_fnc_clr(l, i, ls)=0.0_RealK
-        END DO
-      END DO
-      DO i=n_cloud_top, n_layer
-        DO l=1, n_profile
-          ss_prop%phase_fnc(l, i, ls, 0)=0.0_RealK
+          IF (i < n_cloud_top) THEN
+            ss_prop%phase_fnc_clr(l, i, ls)=0.0_RealK
+          ELSE
+            ss_prop%phase_fnc(l, i, ls, 0)=0.0_RealK
+          END IF
         END DO
       END DO
     END DO
@@ -743,6 +761,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 
 ! Output aerosol optical property diagnostics
   IF (control%l_aerosol_absorption_band) THEN
+    STOP __LINE__
     DO i=1, n_cloud_top-1
       DO l=1, n_profile
 !       At this point k_grey_tot includes the absorption only
@@ -758,6 +777,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
     END DO
   END IF
   IF (control%l_aerosol_scattering_band) THEN
+    STOP __LINE__
     DO i=1, n_cloud_top-1
       DO l=1, n_profile
         radout%aerosol_scattering_band(l, i, i_band)                    &
@@ -784,6 +804,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
   IF (control%l_aerosol_asymmetry_band) THEN
 !   The first moment of the phase function is weighted by the scattering
 !   at this point: the diagnostic will be passed out as a weighted value
+    STOP __LINE__
     DO i=1, n_cloud_top-1
       DO l=1, n_profile
         radout%aerosol_asymmetry_band(l, i, i_band)                    &
@@ -800,18 +821,21 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 
   IF (l_continuum) THEN
 !   Include continuum absorption.
-    DO j=1, n_continuum
-      DO i=1, n_cloud_top-1
-        DO l=1, n_profile
-          ss_prop%k_grey_tot_clr(l, i)=ss_prop%k_grey_tot_clr(l, i)     &
-            +k_continuum(j)*amount_continuum(l, i, j)
-        END DO
-      END DO
-      DO i=n_cloud_top, n_layer
-        DO l=1, n_profile
-          ss_prop%k_grey_tot(l, i, 0)=ss_prop%k_grey_tot(l, i, 0)       &
-            +k_continuum(j)*amount_continuum(l, i, j)
-        END DO
+    !$omp target teams distribute parallel do simd collapse(2) &
+    !$omp& map(ss_prop%k_grey_tot_clr, ss_prop%k_grey_tot)
+    DO i=1, n_layer
+      DO l=1, n_profile
+        IF (i < n_cloud_top) THEN
+          DO j=1, n_continuum
+            ss_prop%k_grey_tot_clr(l, i)=ss_prop%k_grey_tot_clr(l, i)     &
+              +k_continuum(j)*amount_continuum(l, i, j)
+          END DO
+        ELSE
+          DO j=1, n_continuum
+            ss_prop%k_grey_tot(l, i, 0)=ss_prop%k_grey_tot(l, i, 0)       &
+              +k_continuum(j)*amount_continuum(l, i, j)
+          END DO
+        END IF
       END DO
     END DO
   END IF
@@ -821,16 +845,18 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 ! phase function not calculated here since the product of the phase
 ! function and scattering is also needed to calculate the cloudy
 ! phase function.
-  DO i=1, n_cloud_top-1
+  !$omp target teams distribute parallel do simd collapse(2) &
+  !$omp& map(to: ss_prop%k_ext_scat_clr, ss_prop%k_ext_scat) &
+  !$omp& map(ss_prop%k_grey_tot_clr, ss_prop%k_grey_tot)
+  DO i=1, n_layer
     DO l=1, n_profile
-      ss_prop%k_grey_tot_clr(l, i)=ss_prop%k_grey_tot_clr(l, i)         &
-        +ss_prop%k_ext_scat_clr(l, i)
-    END DO
-  END DO
-  DO i=n_cloud_top, n_layer
-    DO l=1, n_profile
-      ss_prop%k_grey_tot(l, i, 0)=ss_prop%k_grey_tot(l, i, 0)           &
-        +ss_prop%k_ext_scat(l, i, 0)
+      IF (i < n_cloud_top) THEN
+        ss_prop%k_grey_tot_clr(l, i)=ss_prop%k_grey_tot_clr(l, i)         &
+          +ss_prop%k_ext_scat_clr(l, i)
+      ELSE
+        ss_prop%k_grey_tot(l, i, 0)=ss_prop%k_grey_tot(l, i, 0)           &
+          +ss_prop%k_ext_scat(l, i, 0)
+      END IF
     END DO
   END DO
 
@@ -838,6 +864,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 ! If there are no clouds calculate the final optical properties
 ! and return to the calling routine.
   IF (.NOT.control%l_cloud) THEN
+    STOP __LINE__
 
     IF (control%l_rescale) THEN
       DO i=1, n_cloud_top-1
@@ -849,12 +876,12 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
           END IF
         END DO
         DO l=1, n_index 
-          tmp_inv(l)=1.0_RealK/ss_prop%k_ext_scat_clr(indx(l), i)
+          tmp_inv=1.0_RealK/ss_prop%k_ext_scat_clr(indx(l), i)
           ss_prop%forward_scatter_clr(indx(l), i)                       &
-            =ss_prop%forward_scatter_clr(indx(l), i)*tmp_inv(l)
+            =ss_prop%forward_scatter_clr(indx(l), i)*tmp_inv
           DO ls=1, n_order_phase
             ss_prop%phase_fnc_clr(indx(l), i, ls)                       &
-              =ss_prop%phase_fnc_clr(indx(l), i, ls)*tmp_inv(l)
+              =ss_prop%phase_fnc_clr(indx(l), i, ls)*tmp_inv
           END DO
         END DO
 !----------------------------------------------------------------------
@@ -864,12 +891,14 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 !---------------------------------------------------------------------- 
         IF (control%i_direct_tau == ip_direct_csr_scaling ) THEN
 ! Above cloud top.
-          CALL circumsolar_fraction(n_index                             &
-           , indx, control%half_angle                                   &
-           , ss_prop%phase_fnc_clr(:, i, 1)                             &
-           , ss_prop%forward_scatter_clr_csr(:, i)                      &
-           , nd_profile                                                 &
-           )
+          DO ll = 1, n_index
+            l = indx(ll)
+            CALL circumsolar_fraction( &
+                control%half_angle                                   &
+              , ss_prop%phase_fnc_clr(l, i, 1)                             &
+              , ss_prop%forward_scatter_clr_csr(l, i)                      &
+              )
+          END DO
         END IF
       END DO
       DO i=n_cloud_top, n_layer
@@ -881,22 +910,24 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
           END IF
         END DO
         DO l=1, n_index
-          tmp_inv(l)=1.0_RealK/ss_prop%k_ext_scat(indx(l), i, 0)
+          tmp_inv=1.0_RealK/ss_prop%k_ext_scat(indx(l), i, 0)
           ss_prop%forward_scatter(indx(l), i, 0)                         &
-            =ss_prop%forward_scatter(indx(l), i, 0)*tmp_inv(l)
+            =ss_prop%forward_scatter(indx(l), i, 0)*tmp_inv
           DO ls=1, n_order_phase
             ss_prop%phase_fnc(indx(l), i, ls, 0)                         &
-              =ss_prop%phase_fnc(indx(l), i, ls, 0)*tmp_inv(l)
+              =ss_prop%phase_fnc(indx(l), i, ls, 0)*tmp_inv
           END DO
         END DO
         IF (control%i_direct_tau == ip_direct_csr_scaling ) THEN
   ! Below cloud top.
-          CALL circumsolar_fraction(n_index                               &
-           , indx, control%half_angle                                     &
-           , ss_prop%phase_fnc(:, i, 1, 0)                                &
-           , ss_prop%forward_scatter_csr(:, i, 0)                         &
-           , nd_profile                                                   &
-           )
+          DO ll = 1, n_index
+            l = indx(ll)
+            CALL circumsolar_fraction( &
+                control%half_angle                                     &
+              , ss_prop%phase_fnc(l, i, 1, 0)                                &
+              , ss_prop%forward_scatter_csr(l, i, 0)                         &
+              )
+          END DO
         END IF 
       END DO
     ELSE
@@ -980,6 +1011,10 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 
 
 ! All the processes occurring outside clouds also occur within them.
+  !$omp target teams distribute parallel do simd collapse(3) &
+  !$omp& map(ss_prop%k_ext_scat, ss_prop%k_grey_tot, ss_prop%phase_fnc) &
+  !$omp& map(ss_prop%forward_scatter, ss_prop%forward_scatter_csr) &
+  !$omp& map(ss_prop%forward_solar, ss_prop%phase_fnc_solar)
   DO k=1, n_cloud_type
     DO i=n_cloud_top, n_layer
       DO l=1, n_profile
@@ -989,31 +1024,21 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
           =ss_prop%forward_scatter(l, i, 0)
         ss_prop%forward_scatter_csr(l, i, k)                            &
           =ss_prop%forward_scatter_csr(l, i, 0)
-      END DO
-      DO ls=1, n_order_phase
-        DO l=1, n_profile
+        DO ls=1, n_order_phase
           ss_prop%phase_fnc(l, i, ls, k)                                &
             =ss_prop%phase_fnc(l, i, ls, 0)
         END DO
-      END DO
-    END DO
-!   If using a separate solar phase function that must be initialized.
-    IF (l_solar_phf) THEN
-      DO i=n_cloud_top, n_layer
-        DO l=1, n_profile
+        !   If using a separate solar phase function that must be initialized.
+        IF (l_solar_phf) THEN
           ss_prop%forward_solar(l, i, k)                                &
             =ss_prop%forward_solar(l, i, 0)
-        END DO
-      END DO
-      DO id=1, n_direction
-        DO i=n_cloud_top, n_layer
-          DO l=1, n_profile
+          DO id=1, n_direction
             ss_prop%phase_fnc_solar(l, i, id, k)                        &
               =ss_prop%phase_fnc_solar(l, i, id, 0)
           END DO
-        END DO
+        END IF
       END DO
-    END IF
+    END DO
   END DO
 
 ! For use with McICA, save the clear-sky phase function (actually the
@@ -1021,6 +1046,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 ! divided by the mean scatering.
   IF (control%i_cloud == ip_cloud_mcica .AND.                           &
       .NOT. control%l_avg_phase_fnc) THEN
+    STOP __LINE__
     DO i=n_cloud_top, n_layer
       DO ls=1, n_order_phase
         DO l=1, n_profile
@@ -1031,6 +1057,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
     END DO
 
     IF (control%l_rescale) THEN
+      STOP __LINE__
       DO i=n_cloud_top, n_layer
         DO l=1, n_profile
           ss_prop%forward_scatter_no_cloud(l, i)                        &
@@ -1043,51 +1070,57 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 
 ! Initialize arrays for diagnostic use.
   IF (control%l_cloud_extinction) THEN
-     DO i=1, n_layer
-        DO l=1, n_profile
-           cloud_extinction(l, i)=0.0_RealK
-        END DO
-     END DO
+    STOP __LINE__
+    DO i=1, n_layer
+      DO l=1, n_profile
+        cloud_extinction(l, i)=0.0_RealK
+      END DO
+    END DO
   END IF
 
   IF (control%l_cloud_absorptivity) THEN
-     DO i=1, n_layer
-        DO l=1, n_profile
-           cloud_absorptivity(l, i)=0.0_RealK
-        END DO
-     END DO
+    STOP __LINE__
+    DO i=1, n_layer
+      DO l=1, n_profile
+        cloud_absorptivity(l, i)=0.0_RealK
+      END DO
+    END DO
   END IF
 
   IF (control%l_ls_cloud_extinction) THEN
-     DO i=1, n_layer
-        DO l=1, n_profile
-           ls_cloud_extinction(l, i)=0.0_RealK
-        END DO
-     END DO
+    STOP __LINE__
+    DO i=1, n_layer
+      DO l=1, n_profile
+        ls_cloud_extinction(l, i)=0.0_RealK
+      END DO
+    END DO
   END IF
 
   IF (control%l_ls_cloud_absorptivity) THEN
-     DO i=1, n_layer
-        DO l=1, n_profile
-           ls_cloud_absorptivity(l, i)=0.0_RealK
-        END DO
-     END DO
+    STOP __LINE__
+    DO i=1, n_layer
+      DO l=1, n_profile
+        ls_cloud_absorptivity(l, i)=0.0_RealK
+      END DO
+    END DO
   END IF
 
   IF (control%l_cnv_cloud_extinction) THEN
-     DO i=1, n_layer
-        DO l=1, n_profile
-           cnv_cloud_extinction(l, i)=0.0_RealK
-        END DO
-     END DO
+    STOP __LINE__
+    DO i=1, n_layer
+      DO l=1, n_profile
+        cnv_cloud_extinction(l, i)=0.0_RealK
+      END DO
+    END DO
   END IF
 
   IF (control%l_cnv_cloud_absorptivity) THEN
-     DO i=1, n_layer
-        DO l=1, n_profile
-           cnv_cloud_absorptivity(l, i)=0.0_RealK
-        END DO
-     END DO
+    STOP __LINE__
+    DO i=1, n_layer
+      DO l=1, n_profile
+        cnv_cloud_absorptivity(l, i)=0.0_RealK
+      END DO
+    END DO
   END IF
 
 
@@ -1110,11 +1143,12 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 
       IF (i_phase_cmp(k) == ip_phase_water) THEN
 
+        !STOP __LINE__
 !       Include scattering by water droplets.
 
         CALL opt_prop_water_cloud(ierr                                  &
           , n_profile, n_layer, n_cloud_top                             &
-          , n_cloud_profile, i_cloud_profile                            &
+          , n_cloud, cloud_layer, cloud_profile &
           , n_order_phase, control%l_rescale, control%n_order_forward   &
           , control%l_henyey_greenstein_pf, l_solar_phf                 &
           , control%l_lanczos                                           &
@@ -1137,15 +1171,17 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
           , nd_direction, nd_phf_term_cloud_prsc, nd_max_order          &
           , nd_cloud_parameter                                          &
           , nd_profile_cloud_prsc, nd_opt_level_cloud_prsc              &
+          , rworkpl1 &
           )
 
       ELSE IF (i_phase_cmp(k) == ip_phase_ice) THEN
 
+        !STOP __LINE__
 !       Include scattering by ice crystals.
 
         CALL opt_prop_ice_cloud(ierr                                    &
           , n_profile, n_layer, n_cloud_top                             &
-          , n_cloud_profile, i_cloud_profile                            &
+          , n_cloud, cloud_layer, cloud_profile &
           , n_order_phase, control%l_rescale, control%n_order_forward   &
           , control%l_henyey_greenstein_pf, l_solar_phf                 &
           , control%l_lanczos                                           &
@@ -1168,6 +1204,7 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
           , nd_direction                                                &
           , nd_phf_term_cloud_prsc, nd_max_order, nd_cloud_parameter    &
           , nd_profile_cloud_prsc, nd_opt_level_cloud_prsc              &
+          , rworkpl1 &
           )
 
       END IF
@@ -1175,9 +1212,10 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 !     Apply cloud inhomogeneity correction
 
       IF (control%i_inhom == ip_cairns) THEN
+        STOP __LINE__
         CALL opt_prop_inhom_corr_cairns(                                &
             n_layer, n_cloud_top                                        &
-          , n_cloud_profile, i_cloud_profile                            &
+          , n_cloud, cloud_layer, cloud_profile &
           , control%l_rescale, control%n_order_forward                  &
           , condensed_rel_var_dens(:, :, k)                             &
           , ss_prop%k_ext_tot_cloud_comp(:, :, k)                       &
@@ -1191,160 +1229,151 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 !     Increment the arrays of optical properties.
 
       IF (control%i_cloud /= ip_cloud_mcica .OR. control%l_avg_phase_fnc) THEN
+        !STOP __LINE__
       IF (control%l_rescale) THEN
-        DO i=n_cloud_top, n_layer
-!CDIR NODEP
-          DO ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
-            ss_prop%k_grey_tot(l, i, i_cloud_type(k))                   &
-              =ss_prop%k_grey_tot(l, i, i_cloud_type(k))                &
-              +ss_prop%k_ext_tot_cloud_comp(l, i, k)
-            ss_prop%k_ext_scat(l, i, i_cloud_type(k))                   &
-              =ss_prop%k_ext_scat(l, i, i_cloud_type(k))                &
-              +ss_prop%k_ext_scat_cloud_comp(l, i, k)
-            DO ls=1, n_order_phase
-              ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))              &
-                =ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))           &
-                +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)
-            END DO
-            ss_prop%forward_scatter(l, i, i_cloud_type(k))              &
-              =ss_prop%forward_scatter(l, i, i_cloud_type(k))           &
-              +ss_prop%forward_scatter_cloud_comp(l, i, k)
+        !$omp target teams distribute parallel do simd &
+        !$omp& private(i, l) &
+        !$omp& map(to: ss_prop%k_ext_scat_cloud_comp, ss_prop%k_ext_tot_cloud_comp) &
+        !$omp& map(to: ss_prop%forward_scatter_cloud_comp, ss_prop%phase_fnc_cloud_comp) &
+        !$omp& map(ss_prop%k_ext_scat, ss_prop%k_grey_tot) &
+        !$omp& map(ss_prop%forward_scatter, ss_prop%phase_fnc)
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          ss_prop%k_grey_tot(l, i, i_cloud_type(k))                   &
+            =ss_prop%k_grey_tot(l, i, i_cloud_type(k))                &
+            +ss_prop%k_ext_tot_cloud_comp(l, i, k)
+          ss_prop%k_ext_scat(l, i, i_cloud_type(k))                   &
+            =ss_prop%k_ext_scat(l, i, i_cloud_type(k))                &
+            +ss_prop%k_ext_scat_cloud_comp(l, i, k)
+          DO ls=1, n_order_phase
+            ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))              &
+              =ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))           &
+              +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)
           END DO
+          ss_prop%forward_scatter(l, i, i_cloud_type(k))              &
+            =ss_prop%forward_scatter(l, i, i_cloud_type(k))           &
+            +ss_prop%forward_scatter_cloud_comp(l, i, k)
         END DO
       ELSE
-        DO i=n_cloud_top, n_layer
-!CDIR NODEP
-          DO ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
-            ss_prop%k_grey_tot(l, i, i_cloud_type(k))                   &
-              =ss_prop%k_grey_tot(l, i, i_cloud_type(k))                &
-              +ss_prop%k_ext_tot_cloud_comp(l, i, k)
-            ss_prop%k_ext_scat(l, i, i_cloud_type(k))                   &
-              =ss_prop%k_ext_scat(l, i, i_cloud_type(k))                &
-              +ss_prop%k_ext_scat_cloud_comp(l, i, k)
-            DO ls=1, n_order_phase
-              ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))              &
-                =ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))           &
-                +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)
-            END DO
+        STOP __LINE__
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          ss_prop%k_grey_tot(l, i, i_cloud_type(k))                   &
+            =ss_prop%k_grey_tot(l, i, i_cloud_type(k))                &
+            +ss_prop%k_ext_tot_cloud_comp(l, i, k)
+          ss_prop%k_ext_scat(l, i, i_cloud_type(k))                   &
+            =ss_prop%k_ext_scat(l, i, i_cloud_type(k))                &
+            +ss_prop%k_ext_scat_cloud_comp(l, i, k)
+          DO ls=1, n_order_phase
+            ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))              &
+              =ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))           &
+              +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)
           END DO
         END DO
       END IF
       IF (l_solar_phf) THEN
-        DO i=n_cloud_top, n_layer
-!CDIR NODEP
-          DO ll=1, n_cloud_profile(i)
-            l=i_cloud_profile(ll, i)
-            ss_prop%forward_solar(l, i, i_cloud_type(k))                &
-              =ss_prop%forward_solar(l, i, i_cloud_type(k))             &
-              +ss_prop%forward_solar_cloud_comp(l, i, k)
-          END DO
-        END DO
-        DO i=n_cloud_top, n_layer
-!CDIR NODEP
+        STOP __LINE__
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+
+          ss_prop%forward_solar(l, i, i_cloud_type(k))                &
+            =ss_prop%forward_solar(l, i, i_cloud_type(k))             &
+            +ss_prop%forward_solar_cloud_comp(l, i, k)
           DO id=1, n_direction
-            DO ll=1, n_cloud_profile(i)
-              l=i_cloud_profile(ll, i)
-              ss_prop%phase_fnc_solar(l, i, id, i_cloud_type(k))        &
-                =ss_prop%phase_fnc_solar(l, i, id, i_cloud_type(k))     &
-                +ss_prop%phase_fnc_solar_cloud_comp(l, i, id, k)
-            END DO
+            ss_prop%phase_fnc_solar(l, i, id, i_cloud_type(k))        &
+              =ss_prop%phase_fnc_solar(l, i, id, i_cloud_type(k))     &
+              +ss_prop%phase_fnc_solar_cloud_comp(l, i, id, k)
           END DO
         END DO
       END IF
-      END IF
+    END IF
 
 
 !     Extra calculations for diagnostics.
 
       IF (control%l_cloud_extinction) THEN
-         DO i=n_cloud_top, n_layer
-!CDIR NODEP
-            DO ll=1, n_cloud_profile(i)
-               l=i_cloud_profile(ll, i)
-               cloud_extinction(l, i)                                   &
-                  =cloud_extinction(l, i)                               &
-                  +ss_prop%k_ext_tot_cloud_comp(l, i, k)                &
-                  *frac_cloud(l, i, i_cloud_type(k))
-            END DO
-         END DO
+        STOP __LINE__
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          cloud_extinction(l, i)                                   &
+            =cloud_extinction(l, i)                               &
+            +ss_prop%k_ext_tot_cloud_comp(l, i, k)                &
+            *frac_cloud(l, i, i_cloud_type(k))
+        END DO
       END IF
 
 
       IF (control%l_cloud_absorptivity) THEN
-         DO i=n_cloud_top, n_layer
-!CDIR NODEP
-            DO ll=1, n_cloud_profile(i)
-               l=i_cloud_profile(ll, i)
-               cloud_absorptivity(l, i)                                 &
-                  =cloud_absorptivity(l, i)                             &
-                  +(ss_prop%k_ext_tot_cloud_comp(l, i, k)               &
-                  -ss_prop%k_ext_scat_cloud_comp(l, i, k))              &
-                  *frac_cloud(l, i, i_cloud_type(k))
-            END DO
-         END DO
+        STOP __LINE__
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          cloud_absorptivity(l, i)                                 &
+            =cloud_absorptivity(l, i)                             &
+            +(ss_prop%k_ext_tot_cloud_comp(l, i, k)               &
+            -ss_prop%k_ext_scat_cloud_comp(l, i, k))              &
+            *frac_cloud(l, i, i_cloud_type(k))
+        END DO
       END IF
 
       IF ((i_cloud_type(k) == ip_cloud_type_sw).OR.                     &
           (i_cloud_type(k) == ip_cloud_type_si)) THEN
 
         IF (control%l_ls_cloud_extinction) THEN
-           DO i=n_cloud_top, n_layer
-!CDIR NODEP
-              DO ll=1, n_cloud_profile(i)
-                 l=i_cloud_profile(ll, i)
-                 ls_cloud_extinction(l, i)                              &
-                    =ls_cloud_extinction(l, i)                          &
-                    +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
-                    *frac_cloud(l, i, i_cloud_type(k))
-              END DO
-           END DO
+          STOP __LINE__
+          DO ll = 1, n_cloud
+            i = cloud_layer(ll)
+            l = cloud_profile(ll)
+            ls_cloud_extinction(l, i)                              &
+              =ls_cloud_extinction(l, i)                          &
+              +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
+              *frac_cloud(l, i, i_cloud_type(k))
+          END DO
         END IF
 
 
         IF (control%l_ls_cloud_absorptivity) THEN
-           DO i=n_cloud_top, n_layer
-!CDIR NODEP
-              DO ll=1, n_cloud_profile(i)
-                 l=i_cloud_profile(ll, i)
-                 ls_cloud_absorptivity(l, i)                            &
-                    =ls_cloud_absorptivity(l, i)                        &
-                    +(ss_prop%k_ext_tot_cloud_comp(l, i, k)             &
-                    -ss_prop%k_ext_scat_cloud_comp(l, i, k))            &
-                    *frac_cloud(l, i, i_cloud_type(k))
-              END DO
-           END DO
+          STOP __LINE__
+          DO ll = 1, n_cloud
+            i = cloud_layer(ll)
+            l = cloud_profile(ll)
+            ls_cloud_absorptivity(l, i)                            &
+              =ls_cloud_absorptivity(l, i)                        &
+              +(ss_prop%k_ext_tot_cloud_comp(l, i, k)             &
+              -ss_prop%k_ext_scat_cloud_comp(l, i, k))            &
+              *frac_cloud(l, i, i_cloud_type(k))
+          END DO
         END IF
 
       ELSE  !  Cloud is of convective type
 
+        STOP __LINE__
         IF (control%l_cnv_cloud_extinction) THEN
-           DO i=n_cloud_top, n_layer
-!CDIR NODEP
-              DO ll=1, n_cloud_profile(i)
-                 l=i_cloud_profile(ll, i)
-                 cnv_cloud_extinction(l, i)                             &
-                    =cnv_cloud_extinction(l, i)                         &
-                    +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
-                    *frac_cloud(l, i, i_cloud_type(k))
-              END DO
-           END DO
+          DO ll = 1, n_cloud
+            i = cloud_layer(ll)
+            l = cloud_profile(ll)
+            cnv_cloud_extinction(l, i)                             &
+              =cnv_cloud_extinction(l, i)                         &
+              +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
+              *frac_cloud(l, i, i_cloud_type(k))
+          END DO
         END IF
 
 
         IF (control%l_cnv_cloud_absorptivity) THEN
-           DO i=n_cloud_top, n_layer
-!CDIR NODEP
-              DO ll=1, n_cloud_profile(i)
-                 l=i_cloud_profile(ll, i)
-                 cnv_cloud_absorptivity(l, i)                           &
-                    =cnv_cloud_absorptivity(l, i)                       &
-                    +(ss_prop%k_ext_tot_cloud_comp(l, i, k)             &
-                    -ss_prop%k_ext_scat_cloud_comp(l, i, k))            &
-                    *frac_cloud(l, i, i_cloud_type(k))
-              END DO
-           END DO
+          DO ll = 1, n_cloud
+            i = cloud_layer(ll)
+            l = cloud_profile(ll)
+            cnv_cloud_absorptivity(l, i)                           &
+              =cnv_cloud_absorptivity(l, i)                       &
+              +(ss_prop%k_ext_tot_cloud_comp(l, i, k)             &
+              -ss_prop%k_ext_scat_cloud_comp(l, i, k))            &
+              *frac_cloud(l, i, i_cloud_type(k))
+          END DO
         END IF
       END IF
 
@@ -1359,184 +1388,225 @@ SUBROUTINE grey_opt_prop(ierr, control, radout, i_band                  &
 ! but we have yet to divide the product of the phase function and
 ! the scattering by the mean scattering.
 
-  DO i=1, n_cloud_top-1
+  IF (control%l_rescale) THEN
 
-    n_index=0
-    DO l=1, n_profile
-      IF (ss_prop%k_ext_scat_clr(l, i) > tiny_k) THEN
-        n_index=n_index+1
-        indx(n_index)=l
-      END IF
-    END DO
-
-    IF (control%l_rescale) THEN
-!CDIR NODEP
-      DO k=1, n_index
-        tmp_inv(k)=1.0_RealK/ss_prop%k_ext_scat_clr(indx(k), i)
-        ss_prop%forward_scatter_clr(indx(k), i)                         &
-          =ss_prop%forward_scatter_clr(indx(k), i)*tmp_inv(k)
-        DO ls=1, n_order_phase
-          ss_prop%phase_fnc_clr(indx(k), i, ls)                         &
-            =ss_prop%phase_fnc_clr(indx(k), i, ls)*tmp_inv(k)
-        END DO
-      END DO
-      IF (control%i_direct_tau == ip_direct_csr_scaling ) THEN
-        CALL circumsolar_fraction(n_index                               &
-           , indx, control%half_angle                                   &
-           , ss_prop%phase_fnc_clr(:, i, 1)                             &
-           , ss_prop%forward_scatter_clr_csr(:, i)                      &
-           , nd_profile                                                 &
-           )
-      END IF
-    ELSE
-      DO ls=1, n_order_phase
-!CDIR NODEP
-        DO k=1, n_index
-          ss_prop%phase_fnc_clr(indx(k), i, ls)                         &
-            =ss_prop%phase_fnc_clr(indx(k), i, ls)                      &
-            /ss_prop%k_ext_scat_clr(indx(k), i)
-        END DO
-      END DO
-    END IF
-
-    IF (l_solar_phf) THEN
-      DO k=1, n_index
-        ss_prop%forward_solar_clr(indx(k), i)                           &
-          =ss_prop%forward_solar_clr(indx(k), i)                        &
-          /ss_prop%k_ext_scat_clr(indx(k), i)
-      END DO
-      DO id=1, n_direction
-        DO k=1, n_index
-          ss_prop%phase_fnc_solar_clr(indx(k), i, id)                   &
-            =ss_prop%phase_fnc_solar_clr(indx(k), i, id)                &
-            /ss_prop%k_ext_scat_clr(indx(k), i)
-        END DO
-      END DO
-    END IF
-
-  END DO
-
-  DO i=n_cloud_top, n_layer
-
-    n_index=0
-    DO l=1, n_profile
-      IF (ss_prop%k_ext_scat(l, i, 0) > tiny_k) THEN
-        n_index=n_index+1
-        indx(n_index)=l
-      END IF
-    END DO
-
-    IF (control%l_rescale) THEN
-!CDIR NODEP
-      DO k=1, n_index
-        tmp_inv(k)=1.0_RealK/ss_prop%k_ext_scat(indx(k), i, 0)
-        ss_prop%forward_scatter(indx(k), i, 0)                          &
-          =ss_prop%forward_scatter(indx(k), i, 0)*tmp_inv(k)
-        DO ls=1, n_order_phase
-          ss_prop%phase_fnc(indx(k), i, ls, 0)                          &
-            =ss_prop%phase_fnc(indx(k), i, ls, 0)*tmp_inv(k)
-        END DO
-      END DO
-      IF (control%i_direct_tau == ip_direct_csr_scaling ) THEN
-        CALL circumsolar_fraction(n_index                               &
-           , indx, control%half_angle                                   &
-           , ss_prop%phase_fnc(:, i, 1, 0)                              &
-           , ss_prop%forward_scatter_csr(:, i, 0)                       &
-           , nd_profile                                                 &
-           )
-      END IF
-    ELSE
-      DO ls=1, n_order_phase
-!CDIR NODEP
-        DO k=1, n_index
-          ss_prop%phase_fnc(indx(k), i, ls, 0)                          &
-            =ss_prop%phase_fnc(indx(k), i, ls, 0)                       &
-            /ss_prop%k_ext_scat(indx(k), i, 0)
-        END DO
-      END DO
-    END IF
-
-    IF (l_solar_phf) THEN
-      DO k=1, n_index
-        ss_prop%forward_solar(indx(k), i, 0)                            &
-          =ss_prop%forward_solar(indx(k), i, 0)                         &
-          /ss_prop%k_ext_scat(indx(k), i, 0)
-      END DO
-      DO id=1, n_direction
-        DO k=1, n_index
-          ss_prop%phase_fnc_solar(indx(k), i, id, 0)                    &
-            =ss_prop%phase_fnc_solar(indx(k), i, id, 0)                 &
-            /ss_prop%k_ext_scat(indx(k), i, 0)
-        END DO
-      END DO
-    END IF
-
-  END DO
-
-  IF (control%i_cloud /= ip_cloud_mcica .OR. control%l_avg_phase_fnc) THEN
-
-! Repeat for clouds.
-  DO k=1, n_cloud_type
-    DO i=n_cloud_top, n_layer
-      n_index=0
+    !$omp target teams distribute parallel do simd collapse(2) &
+    !$omp& private(tmp_inv) &
+    !$omp& map(ss_prop%forward_scatter_clr, ss_prop%phase_fnc_clr) &
+    !$omp& map(to: ss_prop%k_ext_scat_clr)
+    DO i=1, n_cloud_top-1
       DO l=1, n_profile
-        IF (ss_prop%k_ext_scat(l, i, k) > tiny_k) THEN
-          n_index=n_index+1
-          indx(n_index)=l
+        IF (ss_prop%k_ext_scat_clr(l, i) > tiny_k) THEN
+          tmp_inv=1.0_RealK/ss_prop%k_ext_scat_clr(l, i)
+          ss_prop%forward_scatter_clr(l, i)                         &
+            =ss_prop%forward_scatter_clr(l, i)*tmp_inv
+          DO ls=1, n_order_phase
+            ss_prop%phase_fnc_clr(l, i, ls)                         &
+              =ss_prop%phase_fnc_clr(l, i, ls)*tmp_inv
+          END DO
         END IF
       END DO
-
-      IF (control%l_rescale) THEN
-!CDIR NODEP
-        DO j=1, n_index
-          tmp_inv(j)=1.0_RealK/ss_prop%k_ext_scat(indx(j), i, k)
-          ss_prop%forward_scatter(indx(j), i, k)                        &
-            =ss_prop%forward_scatter(indx(j), i, k)*tmp_inv(j)
-          DO ls=1, n_order_phase
-            ss_prop%phase_fnc(indx(j), i, ls, k)                        &
-              =ss_prop%phase_fnc(indx(j), i, ls, k)*tmp_inv(j)
-          END DO
-        END DO
-      ELSE
-        DO ls=1, n_order_phase
-!CDIR NODEP
-          DO j=1, n_index
-            ss_prop%phase_fnc(indx(j), i, ls, k)                        &
-              =ss_prop%phase_fnc(indx(j), i, ls, k)                     &
-              /ss_prop%k_ext_scat(indx(j), i, k)
-          END DO
-        END DO
-      END IF
-
-      IF (l_solar_phf) THEN
-        DO j=1, n_index
-          ss_prop%forward_solar(indx(j), i, k)                          &
-            =ss_prop%forward_solar(indx(j), i, k)                       &
-            /ss_prop%k_ext_scat(indx(j), i, k)
-        END DO
-        DO id=1, n_direction
-          DO j=1, n_index
-            ss_prop%phase_fnc_solar(indx(j), i, id, k)                  &
-              =ss_prop%phase_fnc_solar(indx(j), i, id, k)               &
-              /ss_prop%k_ext_scat(indx(j), i, k)
-          END DO
-        END DO
-      END IF
-      IF ( control%l_rescale .AND.                                      &
-        control%i_direct_tau == ip_direct_csr_scaling ) THEN
-        CALL circumsolar_fraction(n_index                               &
-           , indx, control%half_angle                                   &
-           , ss_prop%phase_fnc(:, i, 1, k)                              &
-           , ss_prop%forward_scatter_csr(:, i, k)                       &
-           , nd_profile                                                 &
-           )
-      END IF
-
     END DO
-  END DO
+
+    IF (control%i_direct_tau == ip_direct_csr_scaling ) THEN
+      STOP __LINE__
+      DO i=1, n_cloud_top-1
+        DO l=1, n_profile
+          IF (ss_prop%k_ext_scat_clr(l, i) > tiny_k) THEN
+            CALL circumsolar_fraction( &
+              control%half_angle                                   &
+              , ss_prop%phase_fnc_clr(l, i, 1)                             &
+              , ss_prop%forward_scatter_clr_csr(l, i)                      &
+              )
+          END IF
+        END DO
+      END DO
+    END IF
+
+  ELSE
+    STOP __LINE__
+    DO ls=1, n_order_phase
+      DO i=1, n_cloud_top-1
+        DO l=1, n_profile
+          IF (ss_prop%k_ext_scat_clr(l, i) > tiny_k) THEN
+            ss_prop%phase_fnc_clr(l, i, ls)                         &
+              =ss_prop%phase_fnc_clr(l, i, ls)                      &
+              /ss_prop%k_ext_scat_clr(l, i)
+          END IF
+        END DO
+      END DO
+    END DO
+  END IF
+
+  IF (l_solar_phf) THEN
+    STOP __LINE__
+    DO i=1, n_cloud_top-1
+      DO l=1, n_profile
+        IF (ss_prop%k_ext_scat_clr(l, i) > tiny_k) THEN
+          ss_prop%forward_solar_clr(l, i)                           &
+            =ss_prop%forward_solar_clr(l, i)                        &
+            /ss_prop%k_ext_scat_clr(l, i)
+          DO id=1, n_direction
+            ss_prop%phase_fnc_solar_clr(l, i, id)                   &
+              =ss_prop%phase_fnc_solar_clr(l, i, id)                &
+              /ss_prop%k_ext_scat_clr(l, i)
+          END DO
+        END IF
+      END DO
+    END DO
+  END IF
+
+  IF (control%l_rescale) THEN
+
+    !$omp target teams distribute parallel do simd collapse(2) &
+    !$omp& private(tmp_inv) &
+    !$omp& map(ss_prop%forward_scatter, ss_prop%phase_fnc) &
+    !$omp& map(to: ss_prop%k_ext_scat)
+    DO i=n_cloud_top, n_layer
+      DO l=1, n_profile
+        IF (ss_prop%k_ext_scat(l, i, 0) > tiny_k) THEN
+          tmp_inv=1.0_RealK/ss_prop%k_ext_scat(l, i, 0)
+          ss_prop%forward_scatter(l, i, 0)                          &
+            =ss_prop%forward_scatter(l, i, 0)*tmp_inv
+          DO ls=1, n_order_phase
+            ss_prop%phase_fnc(l, i, ls, 0)                          &
+              =ss_prop%phase_fnc(l, i, ls, 0)*tmp_inv
+          END DO
+        END IF
+      END DO
+    END DO
+
+    IF (control%i_direct_tau == ip_direct_csr_scaling ) THEN
+      STOP __LINE__
+      DO i=n_cloud_top, n_layer
+        DO l=1, n_profile
+          IF (ss_prop%k_ext_scat(l, i, 0) > tiny_k) THEN
+            CALL circumsolar_fraction( &
+              control%half_angle                                   &
+              , ss_prop%phase_fnc(l, i, 1, 0)                              &
+              , ss_prop%forward_scatter_csr(l, i, 0)                       &
+              )
+          END IF
+        END DO
+      END DO
+    END IF
+
+  ELSE
+
+    STOP __LINE__
+    DO ls=1, n_order_phase
+      DO i=n_cloud_top, n_layer
+        DO l=1, n_profile
+          IF (ss_prop%k_ext_scat(l, i, 0) > tiny_k) THEN
+            ss_prop%phase_fnc(l, i, ls, 0)                          &
+              =ss_prop%phase_fnc(l, i, ls, 0)                       &
+              /ss_prop%k_ext_scat(l, i, 0)
+          END IF
+        END DO
+      END DO
+    END DO
 
   END IF
 
+  IF (l_solar_phf) THEN
+    STOP __LINE__
+    DO i=n_cloud_top, n_layer
+      DO l=1, n_profile
+        IF (ss_prop%k_ext_scat(l, i, 0) > tiny_k) THEN
+          ss_prop%forward_solar(l, i, 0)                            &
+            =ss_prop%forward_solar(l, i, 0)                         &
+            /ss_prop%k_ext_scat(l, i, 0)
+          DO id=1, n_direction
+            ss_prop%phase_fnc_solar(l, i, id, 0)                    &
+              =ss_prop%phase_fnc_solar(l, i, id, 0)                 &
+              /ss_prop%k_ext_scat(l, i, 0)
+          END DO
+        END IF
+      END DO
+    END DO
+  END IF
+
+  IF (control%i_cloud /= ip_cloud_mcica .OR. control%l_avg_phase_fnc) THEN
+    ! Repeat for clouds.
+
+    !STOP __LINE__
+    IF (control%l_rescale) THEN
+      !$omp target teams distribute parallel do simd collapse(3) &
+      !$omp& private(tmp_inv) &
+      !$omp& map(ss_prop%forward_scatter, ss_prop%phase_fnc) &
+      !$omp& map(to: ss_prop%k_ext_scat)
+      DO k=1, n_cloud_type
+        DO i=n_cloud_top, n_layer
+          DO l=1, n_profile
+            IF (ss_prop%k_ext_scat(l, i, k) > tiny_k) THEN
+              tmp_inv=1.0_RealK/ss_prop%k_ext_scat(l, i, k)
+              ss_prop%forward_scatter(l, i, k)                        &
+                =ss_prop%forward_scatter(l, i, k)*tmp_inv
+              DO ls=1, n_order_phase
+                ss_prop%phase_fnc(l, i, ls, k)                        &
+                  =ss_prop%phase_fnc(l, i, ls, k)*tmp_inv
+              END DO
+            END IF
+          END DO
+        END DO
+      END DO
+    ELSE
+      STOP __LINE__
+      DO k=1, n_cloud_type
+        DO i=n_cloud_top, n_layer
+          DO l=1, n_profile
+            IF (ss_prop%k_ext_scat(l, i, k) > tiny_k) THEN
+              DO ls=1, n_order_phase
+                ss_prop%phase_fnc(l, i, ls, k)                        &
+                  =ss_prop%phase_fnc(l, i, ls, k)                     &
+                  /ss_prop%k_ext_scat(l, i, k)
+              END DO
+            END IF
+          END DO
+        END DO
+      END DO
+    END IF
+
+    IF (l_solar_phf) THEN
+      STOP __LINE__
+      DO k=1, n_cloud_type
+        DO i=n_cloud_top, n_layer
+          DO l=1, n_profile
+            IF (ss_prop%k_ext_scat(l, i, k) > tiny_k) THEN
+              ss_prop%forward_solar(l, i, k)                          &
+                =ss_prop%forward_solar(l, i, k)                       &
+                /ss_prop%k_ext_scat(l, i, k)
+              DO id=1, n_direction
+                ss_prop%phase_fnc_solar(l, i, id, k)                  &
+                  =ss_prop%phase_fnc_solar(l, i, id, k)               &
+                  /ss_prop%k_ext_scat(l, i, k)
+              END DO
+            END IF
+          END DO
+        END DO
+      END DO
+    END IF
+
+    IF ( control%l_rescale .AND.                                      &
+      control%i_direct_tau == ip_direct_csr_scaling ) THEN
+
+      STOP __LINE__
+      DO k=1, n_cloud_type
+        DO i=n_cloud_top, n_layer
+          DO l=1, n_profile
+            IF (ss_prop%k_ext_scat(l, i, k) > tiny_k) THEN
+              CALL circumsolar_fraction( &
+                control%half_angle                                   &
+                , ss_prop%phase_fnc(l, i, 1, k)                              &
+                , ss_prop%forward_scatter_csr(l, i, k)                       &
+                )
+            END IF
+          END DO
+        END DO
+      END DO
+    END IF
+
+  END IF
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 

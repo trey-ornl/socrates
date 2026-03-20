@@ -13,7 +13,7 @@ CHARACTER(LEN=*), PARAMETER, PRIVATE :: ModuleName = 'TRANS_SOURCE_COEFF_MOD'
 CONTAINS
 SUBROUTINE trans_source_coeff(control, n_profile                        &
      , i_layer_first, i_layer_last                                      &
-     , tau_dir, tau, sum, diff, lambda, sec_0, path_div                 &
+     , tau_dir, tau, summ, diff, lambda, sec_0, path_div                 &
      , gamma_up, gamma_down                                             &
      , trans, reflect, trans_0_dir, trans_0, source_coeff               &
      , nd_profile                                                       &
@@ -67,7 +67,7 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
 !       Optical depths of layers
     , tau_dir(nd_profile, id_op_lt: id_op_lb)                           &
 !       Unscaled optical depths of layers
-    , sum(nd_profile, id_op_lt: id_op_lb)                               &
+    , summ(nd_profile, id_op_lt: id_op_lb)                               &
 !       Sum of alpha_1 and alpha_2
     , diff(nd_profile, id_op_lt: id_op_lb)                              &
 !       Difference of alpha_1 and alpha_2
@@ -99,13 +99,14 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
 
 
 ! Local variables
+  LOGICAL :: l_dir
   INTEGER                                                               &
       i                                                                 &
 !       Loop variable
     , l
 !       Loop variable
   REAL (RealK) ::                                                       &
-      gamma                                                             &
+      gamma1                                                             &
 !       Gamma
     , exponential                                                       &
 !       Exponential of scaled optical depth
@@ -125,11 +126,6 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
 !       The tolerance used for switching to the asymptotic form
 !       of the quadratic source function term.
 
-  REAL (RealK) ::                                                       &
-      temp(nd_profile),                                                 &
-      temp_in(nd_profile)
-
-
   INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
   INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
   REAL(KIND=jprb)               :: zhook_handle
@@ -146,23 +142,19 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
 
 ! Determine the diffuse transmission and reflection coefficients.
 
+  !$omp target teams distribute parallel do simd collapse(2) &
+  !$omp& private(exponential, exponential2, gamma1, gamma2, tmp_inv)
   DO i=i_layer_first, i_layer_last
     DO l=1, n_profile
-      temp_in(l)=-lambda(l,i)*tau(l,i)
-    END DO
-    CALL exp_v(n_profile, temp_in, temp)
-    DO l=1, n_profile
-      exponential=temp(l)
+      exponential=exp(-lambda(l, i)*tau(l, i))
       exponential2=exponential*exponential
-      gamma=(sum(l, i)-lambda(l, i)) / (sum(l, i)+lambda(l, i))
-      gamma2=gamma*gamma
+      gamma1=(summ(l, i)-lambda(l, i)) / (summ(l, i)+lambda(l, i))
+      gamma2=gamma1*gamma1
       tmp_inv=1.0_RealK / ( 1.0_RealK - exponential2*gamma2 )
       trans(l, i)=exponential*(1.0_RealK-gamma2)*tmp_inv
-      reflect(l, i)=gamma*(1.0_RealK-exponential2)*tmp_inv
+      reflect(l, i)=gamma1*(1.0_RealK-exponential2)*tmp_inv
     END DO
   END DO
-
-
 
   IF (control%isolir == ip_solar) THEN
 
@@ -172,13 +164,12 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
 !   top of the layer to give the source terms for the upward
 !   diffuse flux and the total downward flux.
 
+    !STOP __LINE__
     IF (control%l_spherical_solar) THEN
+      STOP __LINE__
       DO i=i_layer_first, i_layer_last
         DO l=1, n_profile
-          temp(l) = -tau(l,i)*path_div(l,i)
-        END DO
-        CALL exp_v(n_profile,temp,trans_0(1,i))
-        DO l=1, n_profile
+          trans_0(l, i) = exp(-tau(l,i)*path_div(l,i))
           source_coeff(l, i, ip_scf_solar_up)                           &
             = gamma_up(l, i)-reflect(l, i)*gamma_down(l, i)             &
             - gamma_up(l, i)*trans(l, i)*trans_0(l, i)
@@ -188,19 +179,16 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
         END DO
       END DO
     ELSE
+      l_dir = (control%i_direct_tau == ip_direct_noscaling .OR.            &
+            control%i_direct_tau == ip_direct_csr_scaling)
+      !STOP __LINE__
+      !$omp target teams distribute parallel do simd collapse(2)
       DO i=i_layer_first, i_layer_last
         DO l=1, n_profile
-          temp(l) = -tau(l,i)*sec_0(l)
-        END DO
-        CALL exp_v(n_profile,temp,trans_0(1,i))
-        IF (control%i_direct_tau == ip_direct_noscaling .OR.            &
-            control%i_direct_tau == ip_direct_csr_scaling) THEN
-          DO l=1, n_profile
-             temp(l) = -tau_dir(l,i)*sec_0(l)
-          END DO
-          CALL exp_v(n_profile,temp,trans_0_dir(1,i))
-        END IF
-        DO l=1, n_profile
+          trans_0(l, i) = exp(-tau(l,i)*sec_0(l))
+          IF (l_dir) THEN
+            trans_0_dir(l, i) = exp(-tau_dir(l,i)*sec_0(l))
+          END IF
           source_coeff(l, i, ip_scf_solar_up)                           &
             =(gamma_up(l, i)-reflect(l, i)                              &
             *(1.0_RealK+gamma_down(l, i)))                              &
@@ -220,6 +208,8 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
 !   of the Planckian function across the layer, and the second
 !   that for the second difference.
 
+    !STOP __LINE__
+    !$omp target teams distribute parallel do simd collapse(2)
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
 
@@ -228,7 +218,7 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
 
         source_coeff(l, i, ip_scf_ir_1d)=(1.0_RealK-trans(l, i)         &
           +reflect(l, i)+sq_eps_r)                                      &
-          /(sq_eps_r+tau(l, i)*sum(l, i))
+          /(sq_eps_r+tau(l, i)*summ(l, i))
 
       END DO
     END DO
@@ -240,6 +230,7 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
 !     This correction is very ill-conditioned for
 !     small optical depths so the asymptotic form is then used.
 
+      STOP __LINE__
       DO i=i_layer_first, i_layer_last
         DO l=1, n_profile
           IF (tau(l, i) > tol) THEN
@@ -254,7 +245,7 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
           source_coeff(l, i, ip_scf_ir_2d)                              &
             =-(1.0_RealK+reflect(l, i)+trans(l, i)                      &
             +source_coeff(l, i, ip_scf_ir_2d))                          &
-            /(sum(l, i)*tau(l, i)+sq_eps_r)
+            /(summ(l, i)*tau(l, i)+sq_eps_r)
         END DO
       END DO
 
@@ -266,4 +257,5 @@ SUBROUTINE trans_source_coeff(control, n_profile                        &
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE trans_source_coeff
+
 END MODULE trans_source_coeff_mod

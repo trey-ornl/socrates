@@ -14,7 +14,7 @@ CONTAINS
 SUBROUTINE solar_coefficient_basic(control                              &
     , n_profile, i_layer_first, i_layer_last                            &
     , omega, asymmetry, sec_0, path_div                                 &
-    , sum, diff, lambda                                                 &
+    , summ, diff, lambda                                                 &
     , gamma_up, gamma_down                                              &
     , nd_profile, id_lt, id_lb, id_trs_lt, id_trs_lb                    &
     )
@@ -71,7 +71,7 @@ SUBROUTINE solar_coefficient_basic(control                              &
 
 ! Basic two-stream coefficients:
   REAL (RealK), INTENT(INOUT) ::                                        &
-      sum(nd_profile, id_lt: id_lb)                                     &
+      summ(nd_profile, id_lt: id_lb)                                     &
 !       Sum of two-stream coefficients
     , diff(nd_profile, id_lt: id_lb)                                    &
 !       Difference of two-stream coefficients
@@ -91,7 +91,7 @@ SUBROUTINE solar_coefficient_basic(control                              &
     , l
 !       Loop variable
   REAL (RealK) ::                                                       &
-      ksi_0(nd_profile, id_lt: id_lb)                                   &
+      ksi_0 &
 !       Difference in solar scattering fractions
     , factor
 !       Temporary variable
@@ -108,6 +108,8 @@ SUBROUTINE solar_coefficient_basic(control                              &
 !       The tolerance used to judge where the two-stream
 !       expressions for the solar source become ill-conditioned
 
+  LOGICAL :: l_discrete_ord
+
   INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
   INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
   REAL(KIND=jprb)               :: zhook_handle
@@ -119,33 +121,6 @@ SUBROUTINE solar_coefficient_basic(control                              &
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-! Set the tolerances used in avoiding ill-conditioning, testing
-! on any variable.
-  tol_perturb=3.2e+01_RealK*EPSILON(sec_0(1))
-
-! If LAMBDA is too close to SEC_0 it must be perturbed.
-  IF (control%l_spherical_solar) THEN
-    DO i=i_layer_first, i_layer_last
-      DO l=1, n_profile
-        IF (ABS(lambda(l, i)-path_div(l, i)) < tol_perturb) THEN
-          sum(l, i)=(1.0e+00_RealK+tol_perturb)*sum(l, i)
-          diff(l, i)=(1.0e+00_RealK+tol_perturb)*diff(l, i)
-          lambda(l, i)=(1.0e+00_RealK+tol_perturb)*lambda(l, i)
-        END IF
-      END DO
-    END DO
-  ELSE
-    DO i=i_layer_first, i_layer_last
-      DO l=1, n_profile
-        IF ((ABS(lambda(l, i)-sec_0(l))) < tol_perturb) THEN
-          sum(l, i)=(1.0e+00_RealK+tol_perturb)*sum(l, i)
-          diff(l, i)=(1.0e+00_RealK+tol_perturb)*diff(l, i)
-          lambda(l, i)=(1.0e+00_RealK+tol_perturb)*lambda(l, i)
-        END IF
-      END DO
-    END DO
-  END IF
-
   IF ( (control%i_2stream == ip_eddington).OR.                          &
        (control%i_2stream == ip_elsasser).OR.                           &
        (control%i_2stream == ip_pifm85).OR.                             &
@@ -153,36 +128,13 @@ SUBROUTINE solar_coefficient_basic(control                              &
        (control%i_2stream == ip_hemi_mean).OR.                          &
        (control%i_2stream == ip_pifm80) ) THEN
 
-    IF (control%l_spherical_solar) THEN
-      DO i=i_layer_first, i_layer_last
-        DO l=1, n_profile
-          ksi_0(l, i)=1.5e+00_RealK*asymmetry(l, i)/path_div(l, i)
-        END DO
-      END DO
-    ELSE
-      DO i=i_layer_first, i_layer_last
-        DO l=1, n_profile
-          ksi_0(l, i)=1.5e+00_RealK*asymmetry(l, i)/sec_0(l)
-        END DO
-      END DO
-    END IF
+    l_discrete_ord=.FALSE.
 
   ELSE IF (control%i_2stream == ip_discrete_ord) THEN
-
-    IF (control%l_spherical_solar) THEN
-      DO i=i_layer_first, i_layer_last
-        DO l=1, n_profile
-          ksi_0(l, i)=root_3*asymmetry(l, i)/path_div(l, i)
-        END DO
-      END DO
-    ELSE
-      DO i=i_layer_first, i_layer_last
-        DO l=1, n_profile
-          ksi_0(l, i)=root_3*asymmetry(l, i)/sec_0(l)
-        END DO
-      END DO
-    END IF
-
+  
+    STOP __LINE__
+    l_discrete_ord=.TRUE.
+  
   ELSE
 
     cmessage = '*** Error: An illegal solar two-stream scheme has '     &
@@ -192,28 +144,57 @@ SUBROUTINE solar_coefficient_basic(control                              &
 
   END IF
 
+! Set the tolerances used in avoiding ill-conditioning, testing
+! on any variable.
+  tol_perturb=3.2e+01_RealK*EPSILON(sec_0(1))
 
 ! Determine the basic solar coefficients for the two-stream equations.
   IF (control%l_spherical_solar) THEN
+    STOP __LINE__
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
+! If LAMBDA is too close to SEC_0 it must be perturbed.
+        IF (ABS(lambda(l, i)-path_div(l, i)) < tol_perturb) THEN
+          summ(l, i)=(1.0e+00_RealK+tol_perturb)*summ(l, i)
+          diff(l, i)=(1.0e+00_RealK+tol_perturb)*diff(l, i)
+          lambda(l, i)=(1.0e+00_RealK+tol_perturb)*lambda(l, i)
+        END IF
         factor=0.5e+00_RealK*omega(l, i)*path_div(l, i)                 &
           /((lambda(l, i)-path_div(l, i))*(lambda(l, i)+path_div(l, i)))
-        gamma_up(l, i)=factor*(sum(l, i)-path_div(l, i)                 &
-          -ksi_0(l, i)*(diff(l, i)-path_div(l, i)))
-        gamma_down(l, i)=factor*(sum(l, i)+path_div(l, i)               &
-          +ksi_0(l, i)*(diff(l, i)+path_div(l, i)))
+        IF (l_discrete_ord) THEN
+          ksi_0=root_3*asymmetry(l, i)/path_div(l, i)
+        ELSE
+          ksi_0=1.5e+00_RealK*asymmetry(l, i)/path_div(l, i)
+        END IF
+        gamma_up(l, i)=factor*(summ(l, i)-path_div(l, i)                 &
+          -ksi_0*(diff(l, i)-path_div(l, i)))
+        gamma_down(l, i)=factor*(summ(l, i)+path_div(l, i)               &
+          +ksi_0*(diff(l, i)+path_div(l, i)))
       END DO
     END DO
   ELSE
+    !STOP __LINE__
+    !$omp target teams distribute parallel do simd collapse(2) &
+    !$omp& private(factor, ksi_0)
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
+        IF ((ABS(lambda(l, i)-sec_0(l))) < tol_perturb) THEN
+          summ(l, i)=(1.0e+00_RealK+tol_perturb)*summ(l, i)
+          diff(l, i)=(1.0e+00_RealK+tol_perturb)*diff(l, i)
+          lambda(l, i)=(1.0e+00_RealK+tol_perturb)*lambda(l, i)
+        END IF
         factor=0.5e+00_RealK*omega(l, i)*sec_0(l)                       &
           /((lambda(l, i)-sec_0(l))*(lambda(l, i)+sec_0(l)))
-        gamma_up(l, i)=factor*(sum(l, i)-sec_0(l)                       &
-          -ksi_0(l, i)*(diff(l, i)-sec_0(l)))
-        gamma_down(l, i)=factor*(sum(l, i)+sec_0(l)                     &
-          +ksi_0(l, i)*(diff(l, i)+sec_0(l)))
+        IF (l_discrete_ord) THEN
+          ! not tested
+          ksi_0=root_3*asymmetry(l, i)/sec_0(l)
+        ELSE
+          ksi_0=1.5e+00_RealK*asymmetry(l, i)/sec_0(l)
+        END IF
+        gamma_up(l, i)=factor*(summ(l, i)-sec_0(l)                       &
+          -ksi_0*(diff(l, i)-sec_0(l)))
+        gamma_down(l, i)=factor*(summ(l, i)+sec_0(l)                     &
+          +ksi_0*(diff(l, i)+sec_0(l)))
       END DO
     END DO
   END IF
@@ -222,4 +203,5 @@ SUBROUTINE solar_coefficient_basic(control                              &
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE solar_coefficient_basic
+
 END MODULE solar_coefficient_basic_mod

@@ -127,6 +127,7 @@ SUBROUTINE mixed_solar_source(control, bound                            &
 
 
 ! Local variables.
+  LOGICAL :: l_direct_noscaling, l_orog
   INTEGER                                                               &
       i                                                                 &
 !       Loop variable
@@ -134,15 +135,15 @@ SUBROUTINE mixed_solar_source(control, bound                            &
 !       Loop variable
 
   REAL (RealK) ::                                                       &
-      solar_top_free(nd_profile)                                        &
+      solar_top_free &
 !       Free solar flux at top of layer
-    , solar_top_cloud(nd_profile)                                       &
+    , solar_top_cloud &
 !       Cloudy solar flux at top of layer
-    , solar_base_free(nd_profile)                                       &
+    , solar_base_free &
 !       Free solar flux at base of layer
-    , solar_base_cloud(nd_profile)                                      &
+    , solar_base_cloud &
 !       Cloudy solar flux at base of layer
-    , flux_direct_dir(nd_profile, 0: nd_layer)
+    , flux_direct_tmp
 !       Direct flux using direct tau
 
   INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -157,23 +158,22 @@ SUBROUTINE mixed_solar_source(control, bound                            &
 ! The clear and cloudy direct fluxes are calculated separately
 ! and added together to form the total direct flux.
 
-! Set incident fluxes.
+  l_direct_noscaling = (control%i_direct_tau == ip_direct_noscaling .OR. &
+    control%i_direct_tau == ip_direct_csr_scaling)
+  l_orog = control%l_orog
+
+  !$omp target teams distribute &
+  !$omp& private(i, flux_direct_tmp, solar_base_cloud, solar_base_free) &
+  !$omp& private(solar_top_cloud, solar_top_free)
   DO l=1, n_profile
+
+    ! Set incident fluxes.
     flux_direct(l, 0)=flux_inc_direct(l)
-  END DO
-  IF (control%i_direct_tau == ip_direct_noscaling .OR.                  &
-      control%i_direct_tau == ip_direct_csr_scaling) THEN
-    DO l=1, n_profile
-      flux_direct_dir(l, 0)=flux_inc_direct(l)
-    END DO
-  END IF
 
+    ! With equivalent extinction the direct solar flux must be corrected.
+    IF (l_scale_solar) THEN
 
-! With equivalent extinction the direct solar flux must be corrected.
-  IF (l_scale_solar) THEN
-
-    DO i=1, n_cloud_top-1
-      DO l=1, n_profile
+      DO i=1, n_cloud_top-1
         flux_direct(l, i)                                               &
           =flux_direct(l, i-1)*trans_0_free(l, i)                       &
           *adjust_solar_ke(l, i)
@@ -184,23 +184,19 @@ SUBROUTINE mixed_solar_source(control, bound                            &
           -trans_0_free(l, i))*flux_direct(l, i-1)                      &
           +flux_direct(l, i)
       END DO
-    END DO
 
-    IF (control%i_direct_tau == ip_direct_noscaling .OR.                &
-        control%i_direct_tau == ip_direct_csr_scaling) THEN
-      DO i=1, n_cloud_top-1
-        DO l=1, n_profile
-          flux_direct_dir(l, i)                                         &
-            =flux_direct_dir(l, i-1)*trans_0_free_dir(l, i)             & 
-             *adjust_solar_ke(l, i)
+      IF (l_direct_noscaling) THEN
+        flux_direct_tmp=flux_inc_direct(l)
+        !$omp parallel do simd reduction(*: flux_direct_tmp)
+        DO i=1, n_cloud_top-1
+          flux_direct_tmp= &
+            flux_direct_tmp*trans_0_free_dir(l, i)*adjust_solar_ke(l, i)
         END DO
-      END DO
-    END IF
+      END IF
 
-  ELSE
+    ELSE
 
-    DO i=1, n_cloud_top-1
-      DO l=1, n_profile
+      DO i=1, n_cloud_top-1
         flux_direct(l, i)                                               &
           =flux_direct(l, i-1)*trans_0_free(l, i)
         s_up_free(l, i)=source_coeff_free(l, i, ip_scf_solar_up)        &
@@ -209,189 +205,147 @@ SUBROUTINE mixed_solar_source(control, bound                            &
           =source_coeff_free(l, i, ip_scf_solar_down)                   &
           *flux_direct(l, i-1)
       END DO
-    END DO
-    IF (control%i_direct_tau == ip_direct_noscaling .OR.                &
-        control%i_direct_tau == ip_direct_csr_scaling) THEN
-      DO i=1, n_cloud_top-1
-        DO l=1, n_profile
-          flux_direct_dir(l, i)                                         &
-          =flux_direct_dir(l, i-1)*trans_0_free_dir(l, i)
+      IF (l_direct_noscaling) THEN
+        flux_direct_tmp=flux_inc_direct(l)
+        !$omp parallel do simd reduction(*: flux_direct_tmp)
+        DO i=1, n_cloud_top-1
+          flux_direct_tmp=flux_direct_tmp*trans_0_free_dir(l, i)
         END DO
-      END DO
-    END IF
-
-  END IF
-
-
-
-! Clear and cloudy region.
-! Initialize partial fluxes:
-  DO l=1, n_profile
-    solar_base_free(l)=flux_direct(l, n_cloud_top-1)
-    solar_base_cloud(l)=0.0e+00_RealK
-  END DO
-
-
-  DO i=n_cloud_top, n_layer
-
-!   Transfer fluxes across the interface. The use of only one
-!   cloudy flux implicitly forces random overlap of different
-!   subclouds within the cloudy parts of the layer.
-
-    DO l=1, n_profile
-      solar_top_cloud(l)=g_cc(l, i-1)*solar_base_cloud(l)               &
-        +g_fc(l, i-1)*solar_base_free(l)
-      solar_top_free(l)=g_ff(l, i-1)*solar_base_free(l)                 &
-        +g_cf(l, i-1)*solar_base_cloud(l)
-    END DO
-
-
-!   Propagate the clear and cloudy fluxes through the layer:
-    IF (l_scale_solar) THEN
-
-      DO l=1, n_profile
-        solar_base_free(l)=solar_top_free(l)                            &
-          *trans_0_free(l, i)*adjust_solar_ke(l, i)
-        solar_base_cloud(l)=solar_top_cloud(l)                          &
-          *trans_0_cloud(l, i)*adjust_solar_ke(l, i)
-        s_up_free(l, i)=source_coeff_free(l, i, ip_scf_solar_up)        &
-          *solar_top_free(l)
-        s_down_free(l, i)                                               &
-          =(source_coeff_free(l, i, ip_scf_solar_down)                  &
-          -trans_0_free(l, i))*solar_top_free(l)                        &
-          +solar_base_free(l)
-        s_up_cloud(l, i)                                                &
-          =source_coeff_cloud(l, i, ip_scf_solar_up)                    &
-          *solar_top_cloud(l)
-        s_down_cloud(l, i)                                              &
-          =(source_coeff_cloud(l, i, ip_scf_solar_down)                 &
-          -trans_0_cloud(l, i))*solar_top_cloud(l)                      &
-          +solar_base_cloud(l)
-      END DO
-
-    ELSE
-
-      DO l=1, n_profile
-        solar_base_free(l)=solar_top_free(l)                            &
-          *trans_0_free(l, i)
-        solar_base_cloud(l)=solar_top_cloud(l)                          &
-          *trans_0_cloud(l, i)
-        s_up_free(l, i)=source_coeff_free(l, i, ip_scf_solar_up)        &
-          *solar_top_free(l)
-        s_down_free(l, i)                                               &
-          =source_coeff_free(l, i, ip_scf_solar_down)                   &
-          *solar_top_free(l)
-        s_up_cloud(l, i)                                                &
-          =source_coeff_cloud(l, i, ip_scf_solar_up)                    &
-          *solar_top_cloud(l)
-        s_down_cloud(l, i)                                              &
-          =source_coeff_cloud(l, i, ip_scf_solar_down)                  &
-          *solar_top_cloud(l)
-      END DO
+      END IF
 
     END IF
 
-
-!   Calculate the total direct flux.
-    DO l=1, n_profile
-      flux_direct(l, i)=solar_base_free(l)+solar_base_cloud(l)
-    END DO
-
-  END DO
-
-
-! Repeat for direct flux using trans without scaling
-  IF (control%i_direct_tau == ip_direct_noscaling .OR.                  &
-      control%i_direct_tau == ip_direct_csr_scaling) THEN
-
-!   Clear and cloudy region.
-!   Initialize partial fluxes:
-    DO l=1, n_profile
-      solar_base_free(l)=flux_direct_dir(l, n_cloud_top-1)
-      solar_base_cloud(l)=0.0e+00_RealK
-    END DO
-
+    ! Clear and cloudy region.
+    ! Initialize partial fluxes:
+    solar_base_free=flux_direct(l, n_cloud_top-1)
+    solar_base_cloud=0.0e+00_RealK
 
     DO i=n_cloud_top, n_layer
 
-!     Transfer fluxes across the interface. The use of only one
-!     cloudy flux implicitly forces random overlap of different
-!     subclouds within the cloudy parts of the layer.
-      DO l=1, n_profile
-        solar_top_cloud(l)=g_cc(l, i-1)*solar_base_cloud(l)             &
-          +g_fc(l, i-1)*solar_base_free(l)
-        solar_top_free(l)=g_ff(l, i-1)*solar_base_free(l)               &
-          +g_cf(l, i-1)*solar_base_cloud(l)
-      END DO
+      !   Transfer fluxes across the interface. The use of only one
+      !   cloudy flux implicitly forces random overlap of different
+      !   subclouds within the cloudy parts of the layer.
 
+      solar_top_cloud=g_cc(l, i-1)*solar_base_cloud               &
+        +g_fc(l, i-1)*solar_base_free
+      solar_top_free=g_ff(l, i-1)*solar_base_free                 &
+        +g_cf(l, i-1)*solar_base_cloud
 
-!     Propagate the clear and cloudy fluxes through the layer:
+      !   Propagate the clear and cloudy fluxes through the layer:
       IF (l_scale_solar) THEN
 
-        DO l=1, n_profile
-          solar_base_free(l)=solar_top_free(l)                          &
-            *trans_0_free_dir(l, i)*adjust_solar_ke(l, i)
-          solar_base_cloud(l)=solar_top_cloud(l)                        &
-            *trans_0_cloud_dir(l, i)*adjust_solar_ke(l, i)
-        END DO
+        solar_base_free=solar_top_free                            &
+          *trans_0_free(l, i)*adjust_solar_ke(l, i)
+        solar_base_cloud=solar_top_cloud                          &
+          *trans_0_cloud(l, i)*adjust_solar_ke(l, i)
+        s_up_free(l, i)=source_coeff_free(l, i, ip_scf_solar_up)        &
+          *solar_top_free
+        s_down_free(l, i)                                               &
+          =(source_coeff_free(l, i, ip_scf_solar_down)                  &
+          -trans_0_free(l, i))*solar_top_free                        &
+          +solar_base_free
+        s_up_cloud(l, i)                                                &
+          =source_coeff_cloud(l, i, ip_scf_solar_up)                    &
+          *solar_top_cloud
+        s_down_cloud(l, i)                                              &
+          =(source_coeff_cloud(l, i, ip_scf_solar_down)                 &
+          -trans_0_cloud(l, i))*solar_top_cloud                      &
+          +solar_base_cloud
 
       ELSE
 
-        DO l=1, n_profile
-          solar_base_free(l)=solar_top_free(l)                          &
-            *trans_0_free_dir(l, i)
-          solar_base_cloud(l)=solar_top_cloud(l)                        &
-            *trans_0_cloud_dir(l, i)
-        END DO
+        solar_base_free=solar_top_free                            &
+          *trans_0_free(l, i)
+        solar_base_cloud=solar_top_cloud                          &
+          *trans_0_cloud(l, i)
+        s_up_free(l, i)=source_coeff_free(l, i, ip_scf_solar_up)        &
+          *solar_top_free
+        s_down_free(l, i)                                               &
+          =source_coeff_free(l, i, ip_scf_solar_down)                   &
+          *solar_top_free
+        s_up_cloud(l, i)                                                &
+          =source_coeff_cloud(l, i, ip_scf_solar_up)                    &
+          *solar_top_cloud
+        s_down_cloud(l, i)                                              &
+          =source_coeff_cloud(l, i, ip_scf_solar_down)                  &
+          *solar_top_cloud
 
       END IF
 
 
-!     Calculate the total direct flux.
-      DO l=1, n_profile
-        flux_direct_dir(l, i)=solar_base_free(l)+solar_base_cloud(l)
-      END DO
+      !   Calculate the total direct flux.
+      flux_direct(l, i)=solar_base_free+solar_base_cloud
 
     END DO
 
 
-!   From this point, use the unscaled direct flux as the direct component.
-    DO i= 0, n_layer
-      DO l=1, n_profile
-        flux_direct(l, i)=flux_direct_dir(l, i)
+    ! Repeat for direct flux using trans without scaling
+    IF (l_direct_noscaling) THEN
+
+      !   Clear and cloudy region.
+      !   Initialize partial fluxes:
+      solar_base_free=flux_direct_tmp
+      solar_base_cloud=0.0e+00_RealK
+
+      DO i=n_cloud_top, n_layer
+
+        !     Transfer fluxes across the interface. The use of only one
+        !     cloudy flux implicitly forces random overlap of different
+        !     subclouds within the cloudy parts of the layer.
+        solar_top_cloud=g_cc(l, i-1)*solar_base_cloud             &
+          +g_fc(l, i-1)*solar_base_free
+        solar_top_free=g_ff(l, i-1)*solar_base_free               &
+          +g_cf(l, i-1)*solar_base_cloud
+
+        !     Propagate the clear and cloudy fluxes through the layer:
+        IF (l_scale_solar) THEN
+
+          solar_base_free=solar_top_free                          &
+            *trans_0_free_dir(l, i)*adjust_solar_ke(l, i)
+          solar_base_cloud=solar_top_cloud                        &
+            *trans_0_cloud_dir(l, i)*adjust_solar_ke(l, i)
+
+        ELSE
+
+          solar_base_free=solar_top_free                          &
+            *trans_0_free_dir(l, i)
+          solar_base_cloud=solar_top_cloud                        &
+            *trans_0_cloud_dir(l, i)
+
+        END IF
+
+        !     Calculate the total direct flux.
+        flux_direct(l, i)=solar_base_free+solar_base_cloud
+
       END DO
-    END DO
 
-  END IF
+    END IF
 
+    ! Pass the last value at the base of the cloud out.
+    flux_direct_ground_cloud(l)=solar_base_cloud
 
-! Pass the last value at the base of the cloud out.
-  DO l=1, n_profile
-    flux_direct_ground_cloud(l)=solar_base_cloud(l)
+    ! Correct the direct flux at the ground for sloping terrain
+    IF (l_orog) THEN
+      flux_direct(l, n_layer) =                                &
+        flux_direct(l, n_layer) *                             &
+        bound%orog_corr(l)
+
+      flux_direct_ground_cloud(l) =                            &
+        flux_direct_ground_cloud(l) *                         &
+        bound%orog_corr(l)
+
+      s_down_free(l, n_layer) =                                &
+        s_down_free(l, n_layer) +                          &
+        solar_base_free *                               &
+        (bound%orog_corr(l) - 1.0_RealK)
+
+      s_down_cloud(l, n_layer) =                               &
+        s_down_cloud(l, n_layer) +                         &
+        solar_base_cloud *                              &
+        (bound%orog_corr(l) - 1.0_RealK)
+    END IF
+
   END DO
-
-
-! Correct the direct flux at the ground for sloping terrain
-  IF (control%l_orog) THEN
-     flux_direct(1:n_profile, n_layer) =                                &
-        flux_direct(1:n_profile, n_layer) *                             &
-        bound%orog_corr(1:n_profile)
-
-     flux_direct_ground_cloud(1:n_profile) =                            &
-        flux_direct_ground_cloud(1:n_profile) *                         &
-        bound%orog_corr(1:n_profile)
-
-     s_down_free(1:n_profile, n_layer) =                                &
-           s_down_free(1:n_profile, n_layer) +                          &
-           solar_base_free(1:n_profile) *                               &
-           (bound%orog_corr(1:n_profile) - 1.0_RealK)
-
-     s_down_cloud(1:n_profile, n_layer) =                               &
-           s_down_cloud(1:n_profile, n_layer) +                         &
-           solar_base_cloud(1:n_profile) *                              &
-           (bound%orog_corr(1:n_profile) - 1.0_RealK)
-  END IF
-
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 

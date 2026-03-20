@@ -16,20 +16,18 @@
 SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
   USE realtype_rd,  ONLY: RealK
-  USE rad_pcf, ONLY: i_err_fatal, &
-    ip_solar, ip_two_stream, ip_sph_reduced_iter, &
-    ip_spherical_harmonic, ip_infra_red, i_normal, &
-    ip_aerosol_param_moist, ip_aerosol_param_phf_moist, &
-    ip_overlap_single, ip_overlap_random, &
-    ip_overlap_exact_major, ip_overlap_random_resort_rebin, &
-    ip_overlap_k_eqv_scl, ip_overlap_k_eqv, &
-    ip_overlap_mix_ses2, ip_cloud_column_max, ip_cloud_mcica, &
-    ip_cloud_mix_max, ip_cloud_mix_random, ip_cloud_part_corr, &
-    ip_cloud_part_corr_cnv, ip_cloud_triple, &
-    ip_overlap_hybrid, ip_overlap_k_eqv_mod, &
-    ip_region_clear, ip_region_strat, ip_region_conv, &
-    ip_scale_ses2, ip_scale_band, ip_scale_term, &
-    ip_scale_lookup, ip_scale_t_lookup, ip_scale_null
+  USE rad_pcf, ONLY: i_err_fatal, ip_solar, ip_two_stream, ip_sph_reduced_iter,&
+                     ip_spherical_harmonic, ip_infra_red, i_normal,            &
+                     ip_aerosol_param_moist, ip_aerosol_param_phf_moist,       &
+                     ip_overlap_single, ip_overlap_random,                     &
+                     ip_overlap_exact_major, ip_overlap_random_resort_rebin,   &
+                     ip_overlap_k_eqv_scl, ip_overlap_k_eqv,                   &
+                     ip_overlap_mix_ses2, ip_cloud_column_max, ip_cloud_mcica, &
+                     ip_cloud_mix_max, ip_cloud_mix_random, ip_cloud_part_corr,&
+                     ip_cloud_part_corr_cnv, ip_cloud_triple, ip_scale_term,   &
+                     ip_overlap_hybrid, ip_scale_lookup, ip_scale_null,        &
+                     ip_overlap_k_eqv_mod, ip_region_clear, ip_region_strat,   &
+                     ip_region_conv, ip_scale_ses2, ip_scale_band
   USE def_spectrum, ONLY: StrSpecData
   USE def_dimen,    ONLY: StrDim
   USE def_control,  ONLY: StrCtrl
@@ -68,6 +66,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
   USE overlap_coupled_mod, ONLY: overlap_coupled
   USE rescale_continuum_mod, ONLY: rescale_continuum
   USE rescale_phase_fnc_mod, ONLY: rescale_phase_fnc
+  USE reserve_mod, ONLY: reserve
   USE scale_absorb_mod, ONLY: scale_absorb
   USE ses_rescale_contm_mod, ONLY: ses_rescale_contm
   USE set_cloud_geometry_mod, ONLY: set_cloud_geometry
@@ -108,7 +107,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
   TYPE(StrBound),    INTENT(IN)  :: bound
 
 ! Output fields:
-  TYPE(StrOut),      INTENT(OUT) :: radout
+  TYPE(StrOut),      INTENT(INOUT) :: radout
 
 
 ! Local arguments.
@@ -116,8 +115,6 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
   INTEGER                                                                      &
       i_band                                                                   &
 !       Spectral band
-    , i_gas                                                                    &
-!       Local index of gas
     , n_gas                                                                    &
 !       Number of active gases
     , i_gas_band, i_gas_band_1, i_gas_band_2                                   &
@@ -168,12 +165,11 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
   INTEGER                                                                      &
       n_cloud_top                                                              &
 !       Topmost cloudy layer
-    , n_region                                                                 &
+    , n_region
 !       Number of cloudy regions
-    , n_cloud_profile(dimen%id_cloud_top: dimen%nd_layer)                      &
-!       Number of cloudy profiles
-    , i_cloud_profile(dimen%nd_profile, dimen%id_cloud_top: dimen%nd_layer)
-!       Profiles containing clouds
+  INTEGER :: n_band, n_layer, n_profile, nk
+  INTEGER :: n_cloud
+  INTEGER, ALLOCATABLE, SAVE :: cloud_layer(:), cloud_profile(:)
 
 ! Pointers to types of clouds:
   LOGICAL                                                                      &
@@ -192,20 +188,16 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !       Regions in which particular type of cloud fall
 
 ! Fractional coverage of different regions:
-  REAL (RealK) ::                                                              &
-      frac_region(dimen%nd_profile,                                            &
-                  dimen%id_cloud_top: dimen%nd_layer,                          &
-                  dimen%nd_region)
+  REAL(RealK), ALLOCATABLE, SAVE :: frac_region(:,:,:)
 !       Fraction of total cloud occupied by specific regions
 
 ! Pointer to table of humidities:
-  INTEGER                                                                      &
-      i_humidity_pointer(dimen%nd_profile, dimen%nd_layer)
+  INTEGER, ALLOCATABLE, SAVE :: i_humidity_pointer(:,:)
 !       Pointer to look-up table for aerosols
 
 ! Controlling variables:
   INTEGER                                                                      &
-      i, ii                                                                    &
+      i                                                                        &
 !       Loop variable
     , j, j_cont                                                                &
 !       Loop variable
@@ -231,23 +223,20 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
     , l_actinic
 !       Flag to calculate actinic flux
 
-  REAL (RealK) ::                                                              &
-      solar_irrad_band(dimen%nd_profile)                                       &
+  REAL (RealK), ALLOCATABLE, SAVE :: solar_irrad_band(:)
 !       Solar irradiance in the band
-    , solar_irrad_band_ses(dimen%nd_profile, spectrum%dim%nd_k_term)
+  REAL (RealK), ALLOCATABLE, SAVE :: gas_frac_rescaled(:, :, :)
+!       Rescaled gas mixing ratios
+  REAL (RealK) ::                                                              &
+      solar_irrad_band_ses(dimen%nd_profile, spectrum%dim%nd_k_term)
 !       Incident solar flux for each k-term
   REAL (RealK) ::                                                              &
-      gas_frac_rescaled(dimen%nd_profile,                                      &
-                        dimen%nd_layer,                                        &
-                        spectrum%dim%nd_species)                               &
-!       Rescaled gas mixing ratios
-    , gas_mix_amt(dimen%nd_profile, dimen%nd_layer)                            &
+      gas_mix_amt(dimen%nd_profile, dimen%nd_layer)
 !       Mixed gas mixing ratio
-    , amount_continuum(dimen%nd_profile,                                       &
-                       dimen%nd_layer,                                         &
-                       spectrum%dim%nd_continuum)                              &
+  REAL (RealK), ALLOCATABLE, SAVE :: &
+      amount_continuum(:, :, :) &
 !       Amounts of continua
-    , k_continuum_mono(spectrum%dim%nd_continuum)
+    , k_continuum_mono(:)
 !       Monochromatic continuum components
 
 ! Surface BRDF terms
@@ -274,48 +263,49 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !       Common number of humidities for moist aerosols
 
 ! Fundamental optical properties of layers:
-  TYPE(str_ss_prop) :: ss_prop
+  TYPE(str_ss_prop), SAVE :: ss_prop
 !   Single scattering properties of the atmosphere
 
-  TYPE(StrPlanck) :: planck
+  TYPE(StrPlanck), SAVE :: planck
 !   Planckian emission fields
 
-  TYPE(StrSphGeo) :: sph
+  TYPE(StrSphGeo), SAVE :: sph
 !   Spherical geometry fields
 
-  TYPE(StrQy), ALLOCATABLE :: photol(:)
+  TYPE(StrQy), ALLOCATABLE, SAVE :: photol(:)
 !   Photolysis quantum yields interpolated to model grid temperatures
 
-  REAL (RealK) ::                                                              &
-      k_esft_layer(dimen%nd_profile, dimen%nd_layer, spectrum%dim%nd_k_term,   &
-                   spectrum%dim%nd_species)                                    &
+  REAL (RealK), ALLOCATABLE, DIMENSION(:, :, :, :), SAVE :: &
+    k_esft_layer, &
 !       Exponential ESFT terms at actual pressure layer
-    , k_mix_gas_layer(dimen%nd_profile, spectrum%dim%nd_k_term, dimen%nd_layer)&
+    k_esft_cont_layer
+!       Continuum exponential ESFT terms at actual pressure layer
+  REAL (RealK) ::                                                              &
+      k_mix_gas_layer(dimen%nd_profile, spectrum%dim%nd_k_term, dimen%nd_layer)&
 !       Exponential ESFT terms at actual pressure layer
     , k_contm_layer(dimen%nd_profile, spectrum%dim%nd_k_term, dimen%nd_layer,  &
-                    spectrum%dim%nd_continuum)                                 &
+                    spectrum%dim%nd_continuum) 
 !       Continuum absorption coefficients at layer pressure
-    , k_esft_cont_layer(dimen%nd_profile, dimen%nd_layer,                      &
-                        spectrum%dim%nd_k_term_cont, spectrum%dim%nd_cont)
-!       Continuum exponential ESFT terms at actual pressure layer
 
-  REAL (RealK), ALLOCATABLE ::                                                 &
+  REAL (RealK), ALLOCATABLE, SAVE ::                                           &
       k_abs_layer(:, :, :, :)                                                  &
 !       Exponential ESFT terms for gases and generalised continua at actual
 !       pressure layer multiplied by gas mixing ratios
     , k_cont_layer(:, :, :)                                                    &
 !       Exponential ESFT terms for generalised continua at actual
 !       pressure layer multiplied by gas mixing ratios
-    , w_abs_esft(:, :)
+    , w_abs_esft(:, :) &
 !       ESFT weights for gases in band
-  INTEGER, ALLOCATABLE ::                                                      &
+    , w_free(:, :)
+!       Clear-sky fraction
+  INTEGER, ALLOCATABLE, SAVE ::                                                &
       index_abs(:)                                                             &
 !       Local indexing numbers of gases and continua
     , n_abs_esft(:)                                                            &
 !       Number of ESFT terms for gases and continua in a band
     , i_scatter_method_term(:, :)
 !       Method of treating scattering for each k-term
-  LOGICAL, ALLOCATABLE ::                                                      &
+  LOGICAL, ALLOCATABLE, SAVE ::                                                &
       l_cont_added(:)
 !       Flag for having added continuum k-distribution to that of a gas
 
@@ -367,13 +357,9 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
 ! Coefficients for the transfer of energy between
 ! Partially cloudy layers:
-  REAL (RealK) ::                                                              &
-      cloud_overlap(dimen%nd_profile, dimen%id_cloud_top-1: dimen%nd_layer     &
-        , dimen%nd_overlap_coeff)                                              &
+  REAL (RealK), ALLOCATABLE, SAVE :: cloud_overlap(:, :, :)
 !       Coefficients defining overlapping options for clouds:
 !       these also depend on the solver selected.
-    , w_free(dimen%nd_profile, dimen%id_cloud_top: dimen%nd_layer)
-!       Clear-sky fraction
 
 ! Cloud geometry
   INTEGER                                                                      &
@@ -407,14 +393,24 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
     , cnv_cloud_extinction_band(dimen%nd_profile, dimen%nd_layer)
 !       Extinction of convective cloud in a particular band
 
+  INTEGER, ALLOCATABLE, DIMENSION(:, :), SAVE :: &
+    jp, &
+!       Index for pressure interpolation of absorption coefficient
+    jt, &
+!       Index for temperature interpolation of absorption coeff
+    jt_ct, &
+!       Index for temperature interpolation of generalised continuum
+    jtt
+!       Index of reference temperature at level i+1
+!       such that the actual temperature is between JTT and JTT+1
   INTEGER ::                                                                   &
-      jp(dimen%nd_profile, dimen%nd_layer), jp1                                &
+      jp1                                &
 !       Index for pressure interpolation of absorption coefficient
     , jph2oc(dimen%nd_profile, dimen%nd_layer)                                 &
 !       Same as JP but for water vapour pressure
-    , jt(dimen%nd_profile, dimen%nd_layer), jt1                                &
+    , jt1                                &
 !       Index for temperature interpolation of absorption coeff
-    , jtt(dimen%nd_profile, dimen%nd_layer), jtt1                              &
+    , jtt1                              &
 !       Index of reference temperature at level i+1
 !       such that the actual temperature is between JTT and JTT+1
     , jto2c(dimen%nd_profile, dimen%nd_layer)                                  &
@@ -422,8 +418,6 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !       such that the actual temperature is between JTO2C and JTO2C+1
     , jtswo3(dimen%nd_profile, dimen%nd_layer)                                 &
 !       Index of sw o3 reference temp
-    , jt_ct(dimen%nd_profile, dimen%nd_layer)                                  &
-!       Index for temperature interpolation of generalised continuum
     , jgf(dimen%nd_profile, dimen%nd_layer, spectrum%dim%nd_species_sb)        &
 !       Index of reference gas fraction such that the actual gas
 !       fraction is between jgf and jgf+1
@@ -433,12 +427,12 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
     , jgf0, jgf1
 !       Temporary storage of jgf and jgfp1
 
-  REAL (RealK) ::                                                              &
-      fac00(dimen%nd_profile, dimen%nd_layer),                                 &
-      fac01(dimen%nd_profile, dimen%nd_layer),                                 &
-      fac10(dimen%nd_profile, dimen%nd_layer),                                 &
-      fac11(dimen%nd_profile, dimen%nd_layer),                                 &
+  REAL (RealK), ALLOCATABLE, DIMENSION(:, :), SAVE :: &
+    fac00, fac01, fac10, fac11, &
 !       Multiplication factors for P & T interpolation
+    wt_ct
+!       Weight of jt_ct-term in generalised continuum T interpolation
+  REAL (RealK) ::                                                              &
       fac00c(dimen%nd_profile, dimen%nd_layer),                                &
       fac01c(dimen%nd_profile, dimen%nd_layer),                                &
       fac10c(dimen%nd_profile, dimen%nd_layer),                                &
@@ -447,18 +441,8 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       facc00(dimen%nd_profile, dimen%nd_layer),                                &
       facc01(dimen%nd_profile, dimen%nd_layer),                                &
 !       Multiplication factors for O2 continuum T interpolation
-      wt_ct(dimen%nd_profile, dimen%nd_layer),                                 &
-!       Weight of jt_ct-term in generalised continuum T interpolation
       fgf(dimen%nd_profile, dimen%nd_layer, spectrum%dim%nd_species_sb)
 !       Multiplication factors for gas fraction interpolation
-
-! Temperature dependent gas absorption interpolation
-  INTEGER :: n_gas_lk, i_gas_lk(spectrum%dim%nd_species)
-!   Indexing of gas species for lookup tables
-  INTEGER, ALLOCATABLE :: jt_gas(:, :, :)
-!   Index for temperature interpolation of gas absorption
-  REAL (RealK), ALLOCATABLE :: wt_gas(:, :, :)
-!   Weight of jt_gas term in gas absorption temperature interpolation
 
 ! Temperature dependent quantum yield interpolation
   INTEGER :: n_t_lookup
@@ -471,7 +455,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
   LOGICAL :: l_grey_cont
 !   Flag to add continuum in grey_opt_prop
 
-  LOGICAL, ALLOCATABLE :: l_photol_only(:)
+  LOGICAL, ALLOCATABLE, SAVE :: l_photol_only(:)
 !   Only use gas for photolysis, ignoring affect on flux
 
   INTEGER :: nd_esft_max
@@ -480,6 +464,18 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
   INTEGER :: major_abs
 !   Variable to temporarily hold index of major absorber
+
+  ! Work arrays
+  REAL(RealK), ALLOCATABLE, DIMENSION(:), SAVE :: &
+    rworkp1, rworkp2, rworkp3, rworkp4, rworkp5, rworkp6, rworkp7
+  REAL(RealK), ALLOCATABLE, DIMENSION(:, :), SAVE :: &
+    rworkf0l1, rworkfl1, rworkp0l1_1, rworkp0l1_2, rworkp2l2_1, &
+    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6, &
+    rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12, &
+    rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18, &
+    rworkpl19, rworkpl20, rworkpl21, rworkpl22, rworkpl23, rworkpl24
+  REAL(RealK), ALLOCATABLE, DIMENSION(:, :, :), SAVE :: &
+    rworkf2l2k1, rworkp2l1a1, rworkp2l2a1, rworkplsc1, rworkplsc2
 
   INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
   INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -492,9 +488,76 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
   IF (lhook) CALL dr_hook(RoutineName,zhook_in,zhook_handle)
 
-
+  CALL reserve(amount_continuum, &
+    [dimen%nd_profile, dimen%nd_layer, spectrum%dim%nd_continuum], offload=.TRUE.)
+  CALL reserve(cloud_overlap, [1, dimen%id_cloud_top-1, 1], &
+    [dimen%nd_profile, dimen%nd_layer, dimen%nd_overlap_coeff], offload=.TRUE.)
+  CALL reserve(fac00, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(fac01, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(fac10, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(fac11, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(frac_region, [1, dimen%id_cloud_top, 1], &
+    [dimen%nd_profile, dimen%nd_layer, dimen%nd_region], offload=.TRUE.)
+  CALL reserve(gas_frac_rescaled, &
+    [dimen%nd_profile, dimen%nd_layer, spectrum%dim%nd_species], offload=.TRUE.)
+  CALL reserve(jp, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(jt, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(jt_ct, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(jtt, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(k_continuum_mono, spectrum%dim%nd_continuum, offload=.TRUE.)
+  CALL reserve(k_esft_cont_layer, [dimen%nd_profile, dimen%nd_layer, &
+    spectrum%dim%nd_k_term_cont, spectrum%dim%nd_cont], offload=.TRUE.)
+  CALL reserve(k_esft_layer, [dimen%nd_profile, dimen%nd_layer, &
+    spectrum%dim%nd_k_term, spectrum%dim%nd_species], offload=.TRUE.)
+  CALL reserve(solar_irrad_band, dimen%nd_profile, offload=.TRUE.)
+  CALL reserve(i_humidity_pointer, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(w_free, [1, dimen%id_cloud_top], [dimen%nd_profile, dimen%nd_layer], &
+    offload=.TRUE.)
+  CALL reserve(wt_ct, [dimen%nd_profile, dimen%nd_layer])
   CALL allocate_out(radout, control, dimen, spectrum)
 
+  CALL reserve(rworkf2l2k1, &
+    [dimen%nd_flux_profile, 2*dimen%nd_layer+2, dimen%nd_k_term_inner], offload=.TRUE.)
+  CALL reserve(rworkplsc1, [dimen%nd_profile, dimen%nd_layer, dimen%nd_source_coeff], &
+    offload=.TRUE.)
+  CALL reserve(rworkplsc2, [dimen%nd_profile, dimen%nd_layer, dimen%nd_source_coeff], &
+    offload=.TRUE.)
+  CALL reserve(rworkf0l1, [1, 0], [dimen%nd_flux_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkfl1, [dimen%nd_flux_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkp0l1_1, [1, 0], [dimen%nd_profile, dimen%nd_layer+1], offload=.TRUE.)
+  CALL reserve(rworkp0l1_2, [1, 0], [dimen%nd_profile, dimen%nd_layer+1], offload=.TRUE.)
+  CALL reserve(rworkp2l2_1, [dimen%nd_profile, 2*dimen%nd_layer+2], offload=.TRUE.)
+  CALL reserve(rworkpl1, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl2, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl3, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl4, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl5, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl6, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl7, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl8, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl9, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl10, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl11, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl12, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl13, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl14, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl15, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl16, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl17, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl18, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl19, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl20, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl21, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl22, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl23, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkpl24, [dimen%nd_profile, dimen%nd_layer], offload=.TRUE.)
+  CALL reserve(rworkp1, dimen%nd_profile, offload=.TRUE.)
+  CALL reserve(rworkp2, dimen%nd_profile, offload=.TRUE.)
+  CALL reserve(rworkp3, dimen%nd_profile, offload=.TRUE.)
+  CALL reserve(rworkp4, dimen%nd_profile, offload=.TRUE.)
+  CALL reserve(rworkp5, dimen%nd_profile, offload=.TRUE.)
+  CALL reserve(rworkp6, dimen%nd_profile, offload=.TRUE.)
+  CALL reserve(rworkp7, dimen%nd_profile, offload=.TRUE.)
 
 ! Initial determination of flags and switches:
   IF (control%i_angular_integration == ip_two_stream) THEN
@@ -508,6 +571,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
   ELSE IF (control%i_angular_integration == ip_spherical_harmonic) THEN
 
 !   Set limits on ranges of harmonics and set pointers to arrays.
+    STOP __LINE__
     CALL set_truncation(ierr                                                   &
       , control%i_truncation, control%ls_global_trunc                          &
       , ls_max_order, ls_local_trunc                                           &
@@ -524,12 +588,14 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !   Calculate the solar scattering angles if treating the
 !   solar beam separately.
     IF (l_solar_phf) THEN
+      STOP __LINE__
       CALL sol_scat_cos(atm%n_profile, atm%n_direction                         &
         , bound%zen_0, atm%direction, cos_sol_view                             &
         , dimen%nd_profile, dimen%nd_direction)
     END IF
 
 !   Calculate Clebsch-Gordan coefficients once and for all.
+    STOP __LINE__
     CALL calc_cg_coeff(ls_max_order                                            &
       , ia_sph_mm, control%ms_min, ms_trunc                                    &
       , cg_coeff                                                               &
@@ -537,12 +603,14 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
 !   Calculate spherical harmonics at polar angles of pi/2 for
 !   use in Marshak's boundary conditions.
+    STOP __LINE__
     CALL calc_uplm_zero(control%ms_min, control%ms_max, ia_sph_mm              &
       , ls_local_trunc, uplm_zero                                              &
       , dimen%nd_max_order, dimen%nd_sph_coeff)
 
     IF (control%isolir == ip_solar) THEN
 !     Calculate the spherical harmonics of the solar direction.
+      STOP __LINE__
       CALL calc_uplm_sol(atm%n_profile, control%ms_min, control%ms_max         &
         , ia_sph_mm                                                            &
         , ls_local_trunc, bound%zen_0, uplm_sol                                &
@@ -551,6 +619,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
     IF (control%i_sph_algorithm == ip_sph_reduced_iter) THEN
 !     Calcuate some arrays of terms for the BRDF.
+      STOP __LINE__
       CALL calc_brdf(control%isolir, control%ms_min, control%ms_max            &
         , ia_sph_mm, uplm_sol, uplm_zero                                       &
         , bound%n_brdf_basis_fnc, control%ls_brdf_trunc, bound%f_brdf          &
@@ -564,6 +633,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !   For the calculation of equivalent extinction in the IR
 !   we need the diffuse albedo for each basis function.
     l_diff_alb=.FALSE.
+    STOP __LINE__
     DO i_band=1, spectrum%basic%n_band
       l_diff_alb=l_diff_alb.OR.                                                &
         (control%i_gas_overlap_band(i_band) == ip_overlap_k_eqv).OR.           &
@@ -573,6 +643,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
          spectrum%gas%i_overlap(i_band) == ip_overlap_k_eqv_scl)
     END DO
     IF ( (control%isolir == ip_infra_red).AND.l_diff_alb ) THEN
+      STOP __LINE__
       CALL diff_albedo_basis(bound%n_brdf_basis_fnc                            &
         , control%ls_brdf_trunc, bound%f_brdf                                  &
         , uplm_zero(ia_sph_mm(0))                                              &
@@ -582,6 +653,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
     END IF
 
 !   Determine which layers will be required to give radiances.
+    STOP __LINE__
     CALL set_rad_layer(ierr                                                    &
       , atm%n_layer, atm%n_viewing_level, atm%viewing_level                    &
       , i_rad_layer, frac_rad_layer                                            &
@@ -599,12 +671,16 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
   l_water=ANY(spectrum%gas%type_absorb(1:spectrum%gas%n_absorb) == ip_h2o)
 
 
+  n_layer = atm%n_layer
+  n_profile = atm%n_profile
+
 ! Initial calculations for aerosols:
   IF (control%l_aerosol) THEN
 
 !   Set the spectrally independent properties of moist aerosols.
     l_moist_aerosol  = .FALSE.
-    DO j = 1, spectrum%aerosol%n_aerosol
+    !STOP __LINE__
+    DO j = 1, spectrum%aerosol%n_aerosol ! 25
       SELECT CASE ( spectrum%aerosol%i_aerosol_parm(j) )
       CASE (ip_aerosol_param_moist, ip_aerosol_param_phf_moist)
         l_moist_aerosol  = .TRUE.
@@ -616,8 +692,10 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !     Currently all aerosols use the same lookup table of humidities
       delta_humidity = 1.0e+00_RealK                                           &
         / ( REAL(nhumidity_common, RealK) - 1.0e+00_RealK )
-      DO i = 1, atm%n_layer
-        DO l = 1, atm%n_profile
+      !$omp target teams distribute parallel do simd collapse(2) &
+      !$omp& map(to: aer%mean_rel_humidity)
+      DO i = 1, n_layer
+        DO l = 1, n_profile
           i_humidity_pointer(l, i) = 1 +                                       &
             INT( aer%mean_rel_humidity(l, i)*(nhumidity_common-1) )
         END DO
@@ -631,6 +709,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
   IF (control%l_cloud) THEN
 
 !   Set pointers to the types of cloud.
+    !STOP __LINE__
     CALL set_cloud_pointer(ierr                                                &
       , cld%n_condensed, cld%type_condensed, control%i_cloud_representation    &
       , control%l_drop, control%l_ice                                          &
@@ -640,11 +719,13 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
 
 !   Set the geometry of the clouds.
+    !STOP __LINE__
     CALL set_cloud_geometry(atm%n_profile, atm%n_layer                         &
       , control%l_global_cloud_top, cld%w_cloud                                &
-      , n_cloud_top, n_cloud_profile, i_cloud_profile                          &
+      , n_cloud_top, n_cloud, cloud_layer, cloud_profile &
       , dimen%nd_profile, dimen%nd_layer, dimen%id_cloud_top                   &
       )
+    !!$omp target update from(cloud_layer, cloud_profile)
 
     k_clr=1
     IF ( (control%i_cloud == ip_cloud_triple).OR.                              &
@@ -656,6 +737,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       type_region(1)=ip_region_clear
       type_region(2)=ip_region_strat
       type_region(3)=ip_region_conv
+      STOP __LINE__
       CALL aggregate_cloud(ierr                                                &
         , atm%n_profile, atm%n_layer, n_cloud_top                              &
         , control%i_cloud, control%i_cloud_representation                      &
@@ -671,8 +753,9 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       n_region=2
       type_region(1)=ip_region_clear
       type_region(2)=ip_region_strat
-      DO i=n_cloud_top, atm%n_layer
-        DO l=1, atm%n_profile
+      !$omp target teams distribute parallel do simd collapse(2)
+      DO i=n_cloud_top, n_layer
+        DO l=1, n_profile
           frac_region(l, i, 2)=1.0e+00_RealK
         END DO
       END DO
@@ -686,6 +769,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
          (control%i_cloud == ip_cloud_part_corr).OR.                           &
          (control%i_cloud == ip_cloud_part_corr_cnv) ) THEN
 
+      !STOP __LINE__
       CALL overlap_coupled(atm%n_profile, atm%n_layer, n_cloud_top             &
         , cld%w_cloud, w_free, n_region, type_region, frac_region, atm%p       &
         , control%i_cloud                                                      &
@@ -697,6 +781,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
     ELSE IF (control%i_cloud == ip_cloud_column_max) THEN
 
+        STOP __LINE__
         CALL cloud_maxcs_split(ierr, atm%n_profile, atm%n_layer                &
           , n_cloud_top, cld%w_cloud, cld%frac_cloud                           &
           , cld%n_cloud_type                                                   &
@@ -718,6 +803,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 ! Calculate temperature and pressure interpolation factor for gas k-terms
   IF ( ANY(spectrum%gas%i_scale_fnc(                                           &
     control%first_band : control%last_band, 1) == ip_scale_ses2) ) THEN
+    STOP __LINE__
     CALL inter_pt(dimen%nd_profile, dimen%nd_layer                             &
       , atm%n_profile, atm%n_layer, atm%gas_mix_ratio(1,1,i_pointer_water)     &
       , atm%p, atm%t, fac00, fac01, fac10, fac11                               &
@@ -725,6 +811,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       , facc00, facc01, jp, jph2oc, jt, jtt, jto2c, jtswo3)
   ELSE IF ( ANY(spectrum%gas%i_scale_fnc(                                      &
     control%first_band : control%last_band, :) == ip_scale_lookup) ) THEN
+    !STOP __LINE__
     CALL inter_pt_lookup(dimen%nd_profile, dimen%nd_layer, spectrum%dim%nd_pre &
       , spectrum%dim%nd_tmp, spectrum%dim%nd_gas_frac, spectrum%dim%nd_species &
       , spectrum%dim%nd_species_sb, atm%n_profile, atm%n_layer                 &
@@ -736,33 +823,10 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       , fac00, fac01, fac10, fac11, jp, jt, jtt, fgf, jgf, jgfp1)
   END IF
 
-! Calculate temperature interpolation factors for gas k-terms
-  n_gas_lk = 0
-  i_gas_lk(:) = 0
-  DO i_gas=1, Spectrum%Gas%n_absorb
-    DO i_band=control%first_band, control%last_band
-      IF (spectrum%gas%i_scale_fnc(i_band, i_gas) == ip_scale_t_lookup) THEN
-        n_gas_lk = n_gas_lk + 1
-        i_gas_lk(i_gas) = n_gas_lk
-        EXIT
-      END IF
-    END DO
-  END DO
-  ALLOCATE(jt_gas(atm%n_profile, atm%n_layer, n_gas_lk))
-  ALLOCATE(wt_gas(atm%n_profile, atm%n_layer, n_gas_lk))
-  DO i_gas=1, Spectrum%Gas%n_absorb
-    ii = i_gas_lk(i_gas)
-    IF (ii > 0) THEN
-      CALL inter_t_lookup( atm%n_profile, atm%n_layer, &
-        Spectrum%Gas%n_t_lookup_gas(i_gas), atm%n_profile, atm%n_layer, &
-        atm%t, Spectrum%Gas%t_lookup_gas(:, i_gas), &
-        wt_gas(:, :, ii), jt_gas(:, :, ii) )
-    END IF
-  END DO
-
 ! Calculate temperature interpolation factor for continuum k-terms
   IF (ANY(spectrum%contgen%i_band_k_cont(                                      &
             control%first_band : control%last_band, :) > 0)) THEN
+    STOP __LINE__
     CALL inter_t_lookup(dimen%nd_profile, dimen%nd_layer &
         , spectrum%dim%nd_t_lookup_cont, atm%n_profile, atm%n_layer, atm%t     &
         , spectrum%contgen%t_lookup_cont                                       &
@@ -770,18 +834,22 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
   END IF
 
 ! Interpolate quantum yields to model temperatures
-  ALLOCATE(photol(spectrum%photol%n_pathway))
-  DO i_path=1, spectrum%photol%n_pathway
+  IF (.NOT. ALLOCATED(photol)) ALLOCATE(photol(spectrum%photol%n_pathway))
+  !STOP __LINE__
+  DO i_path=1, spectrum%photol%n_pathway ! 0
     n_t_lookup = spectrum%photol%n_t_lookup_photol(i_path)
     IF (n_t_lookup > 1) THEN
+      STOP __LINE__
       CALL allocate_qy(photol(i_path), atm%n_profile, atm%n_layer, &
                        spectrum%photol%n_wl_lookup_photol(i_path))
       ALLOCATE (jt_qy(atm%n_profile, atm%n_layer))
       ALLOCATE (wt_qy(atm%n_profile, atm%n_layer))
+      STOP __LINE__
       CALL inter_t_lookup(atm%n_profile, atm%n_layer, &
         n_t_lookup, atm%n_profile, atm%n_layer, atm%t, &
         spectrum%photol%t_lookup_photol(1:n_t_lookup, i_path), &
         wt_qy, jt_qy)
+      STOP __LINE__
       DO i_wl=1, spectrum%photol%n_wl_lookup_photol(i_path)
         DO i=1, atm%n_layer
           DO l=1, atm%n_profile
@@ -805,6 +873,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 ! things, but we had to wait for certain other calculations to be
 ! made.
   IF (control%i_angular_integration == ip_spherical_harmonic) THEN
+    STOP __LINE__
     CALL check_phf_term(ierr                                                   &
       , control%l_aerosol, spectrum%aerosol%n_aerosol                          &
       , spectrum%aerosol%i_aerosol_parm                                        &
@@ -854,6 +923,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
 ! Allocate fields and calculate the path for spherical geometry
   IF (control%l_spherical_solar) THEN
+    STOP __LINE__
     CALL allocate_sph(sph, dimen)
     CALL spherical_path(dimen, atm, bound, sph)
     IF (control%l_spherical_path_diag) THEN
@@ -863,7 +933,10 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
     radout%flux_direct_clear = 0.0_RealK
   ELSE
     ! path_div is passed as an argument so must always be allocated
-    ALLOCATE(sph%common%path_div(dimen%nd_profile,dimen%nd_layer))
+    !STOP __LINE__
+    IF (.NOT.ALLOCATED(sph%common%path_div)) THEN
+      ALLOCATE(sph%common%path_div(dimen%nd_profile,dimen%nd_layer))
+    END IF
   END IF
 
 ! Set flag for calculation of actinic flux
@@ -880,7 +953,8 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
   l_initial_channel_tile(:)=.TRUE.
 
 ! Solve the equation of transfer in each band and increment the fluxes.
-  DO i_band=control%first_band, control%last_band
+  !STOP __LINE__
+  DO i_band=control%first_band, control%last_band ! 0,6,9
 
 !   Determine whether clear-sky fluxes are required for this band
     l_clear_band = control%l_clear .OR. control%l_clear_band(i_band)
@@ -896,10 +970,12 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
     l_grey_cont = .FALSE.
     IF (control%l_continuum) THEN
       n_continuum=spectrum%cont%n_band_continuum(i_band)
-      DO i=1, n_continuum
+      !STOP __LINE__
+      DO i=1, n_continuum ! 0,1
         i_continuum=spectrum%cont%index_continuum(i_band, i)
         IF (spectrum%cont%i_scale_fnc_cont(i_band, i) == ip_scale_ses2) THEN
           k_continuum_mono(i)=0.0
+          STOP __LINE__
           CALL ses_rescale_contm(dimen%nd_profile, dimen%nd_layer              &
             , i_continuum, atm%n_profile, atm%n_layer                          &
             , atm%p, atm%t, atm%gas_mix_ratio(1,1,i_pointer_water)             &
@@ -908,6 +984,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
         ELSE
           l_grey_cont = .TRUE.
           k_continuum_mono(i) = spectrum%cont%k_cont(i_band, i)
+          !STOP __LINE__
           CALL rescale_continuum(control, atm%n_profile, atm%n_layer           &
             , i_continuum, atm%p, atm%t                                        &
             , atm%density, atm%gas_mix_ratio(1, 1, i_pointer_water)            &
@@ -920,13 +997,18 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
             , spectrum%dim%nd_scale_variable)
         END IF
       END DO
+      !$omp target update to(k_continuum_mono)
     END IF
 
 !   Allocate the single scattering propeties.
-    CALL allocate_ss_prop(ss_prop, dimen)
+    !STOP __LINE__
+    IF (.NOT.ASSOCIATED(ss_prop%k_grey_tot_clr)) THEN
+      CALL allocate_ss_prop(ss_prop, dimen)
+    END IF
 
 !   Calculate the grey extinction within the band.
 
+    !STOP __LINE__
     CALL grey_opt_prop(ierr, control, radout, i_band                           &
       , atm%n_profile, atm%n_layer, atm%p, atm%t, atm%density                  &
       , n_order_phase, l_solar_phf, atm%n_direction, cos_sol_view              &
@@ -953,7 +1035,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       , aer%absorption_prsc(1, 1, 1, i_band)                                   &
       , aer%scattering_prsc(1, 1, 1, i_band)                                   &
       , aer%phase_fnc_prsc(1, 1, 1, 1, i_band)                                 &
-      , n_cloud_profile, i_cloud_profile                                       &
+      , n_cloud, cloud_layer, cloud_profile &
       , n_cloud_top, cld%n_condensed, l_cloud_cmp, i_phase_cmp                 &
       , cld%i_condensed_param                                                  &
       , cld%condensed_param_list(1, 1, i_band)                                 &
@@ -984,6 +1066,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       , dimen%nd_max_order, dimen%nd_direction, dimen%nd_aerosol_mode          &
       , dimen%nd_profile_aerosol_prsc, dimen%nd_profile_cloud_prsc             &
       , dimen%nd_opt_level_aerosol_prsc, dimen%nd_opt_level_cloud_prsc         &
+      , rworkpl1, rworkpl2 &
       )
 
 
@@ -999,6 +1082,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !       Rescale clear-sky phase function:
 
 !       The section above clouds.
+        !STOP __LINE__
         CALL rescale_phase_fnc(atm%n_profile, 1, n_cloud_top-1                 &
           , atm%n_direction, cos_sol_view                                      &
           , n_order_phase                                                      &
@@ -1010,6 +1094,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
           , dimen%nd_direction, dimen%nd_max_order                             &
           )
 !       The section including clouds.
+        !STOP __LINE__
         CALL rescale_phase_fnc(atm%n_profile, n_cloud_top                      &
           , atm%n_layer, atm%n_direction, cos_sol_view                         &
           , n_order_phase                                                      &
@@ -1026,7 +1111,9 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
         IF (control%l_cloud .AND. control%i_cloud /= ip_cloud_mcica) THEN
 
 !         Rescale cloudy phase functions:
-          DO k=1, cld%n_cloud_type
+          !STOP __LINE__
+          DO k=1, cld%n_cloud_type ! 1
+            !STOP __LINE__
             CALL rescale_phase_fnc(atm%n_profile, n_cloud_top                  &
               , atm%n_layer, atm%n_direction, cos_sol_view                     &
               , n_order_phase                                                  &
@@ -1051,6 +1138,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
     IF (i_gas_overlap == ip_overlap_mix_ses2) THEN
 
 !     Interpolate absorption coefficients onto model grid
+      STOP __LINE__
       CALL inter_k(atm%n_profile, atm%n_layer, spectrum%gas%n_band_absorb      &
         , spectrum%gas%mix_gas_band, spectrum%gas%n_mix_gas(i_band)            &
         , spectrum%gas%index_mix_gas                                           &
@@ -1074,6 +1162,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
       IF ((control%isolir == ip_solar) .OR. control%l_solar_tail_flux) THEN
 !       Convert normalized band fluxes to actual energy fluxes.
+        STOP __LINE__
         DO k=1,spectrum%gas%i_band_k_ses(i_band)
           DO l=1, atm%n_profile
             solar_irrad_band_ses(l,k)=bound%solar_irrad(l)                     &
@@ -1085,6 +1174,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       IF (control%l_solar_tail_flux) THEN
 !       Calculate solar tail flux and add it to the solar region
 !       for diagnostic output
+        STOP __LINE__
         DO k=1,spectrum%gas%i_band_k_ses(i_band)
           DO l=1, atm%n_profile
             radout%solar_tail_flux(l)=radout%solar_tail_flux(l)                &
@@ -1095,12 +1185,15 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
     ELSE
 
-      DO j=1, spectrum%gas%n_band_absorb(i_band)
+      !STOP __LINE__
+      DO j=1, spectrum%gas%n_band_absorb(i_band) ! 2,3,4,7,10
         i_gas_band=spectrum%gas%index_absorb(j, i_band)
         IF (spectrum%gas%i_scale_fnc(i_band, i_gas_band)                       &
           == ip_scale_lookup) THEN
+          !STOP __LINE__
           IF (spectrum%gas%l_self_broadening(i_gas_band)) THEN
             i_gas_band_sb=spectrum%gas%index_sb(i_gas_band)
+            STOP __LINE__
             DO k=1, spectrum%gas%i_band_k(i_band, i_gas_band)
               DO i=1, atm%n_layer
                 DO l=1, atm%n_profile
@@ -1132,9 +1225,14 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
               END DO
             END DO
           ELSE
-            DO k=1, spectrum%gas%i_band_k(i_band, i_gas_band)
-              DO i=1, atm%n_layer
-                DO l=1, atm%n_profile
+            n_band = spectrum%gas%i_band_k(i_band, i_gas_band)
+            !STOP __LINE__
+            !$omp target teams distribute parallel do simd collapse(3) &
+            !$omp& map(to: spectrum%gas%k_lookup) &
+            !$omp& private(jp1, jt1, jtt1) 
+            DO k=1, n_band
+              DO i=1, n_layer
+                DO l=1, n_profile
                   jp1=jp(l,i)+1
                   jt1=jt(l,i)+1
                   jtt1=jtt(l,i)+1
@@ -1151,26 +1249,14 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
               END DO
             END DO
           END IF
-        ELSE IF (spectrum%gas%i_scale_fnc(i_band, i_gas_band) &
-          == ip_scale_t_lookup) THEN
-          ii = i_gas_lk(i_gas_band)
-          DO k=1, spectrum%gas%i_band_k(i_band, i_gas_band)
-            DO i=1, atm%n_layer
-              DO l=1, atm%n_profile
-                k_esft_layer(l,i,k,i_gas_band) = MAX(0.0_RealK, &
-                  wt_gas(l,i,ii)*Spectrum%Gas%k_t_lookup_gas( &
-                    jt_gas(l,i,ii), k, i_gas_band, i_band ) &
-                  + (1.0_RealK - wt_gas(l,i,ii))*Spectrum%Gas%k_t_lookup_gas( &
-                    jt_gas(l,i,ii)+1, k, i_gas_band, i_band) )
-              END DO
-            END DO
-          END DO
         END IF
       END DO
 
       IF (control%isolir == ip_solar) THEN
+        !STOP __LINE__
 !       Convert normalized band fluxes to actual energy fluxes.
         IF (control%l_spherical_solar) THEN
+          STOP __LINE__
           DO l=1, atm%n_profile
             ! For the surface and TOA it's OK to use cos_zen, which may equal
             ! zero, as in that case zero flux would be appropriate.
@@ -1178,6 +1264,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
               * bound%lit(l,0) * spectrum%solar%solar_flux_band(i_band)        &
               * bound%cos_zen(l,0)
           END DO
+          STOP __LINE__
           DO i=1, atm%n_layer
             DO l=1, atm%n_profile
               ! For the flux arriving at the layers we solve directly along
@@ -1189,6 +1276,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
             END DO
           END DO
           i=atm%n_layer+1
+          STOP __LINE__
           DO l=1, atm%n_profile
             sph%common%flux_inc_direct(l,i) = bound%solar_irrad(l)             &
               * bound%lit(l,i) * spectrum%solar%solar_flux_band(i_band)        &
@@ -1196,7 +1284,10 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
             solar_irrad_band(l)=0.0_RealK
           END DO
         ELSE
-          DO l=1, atm%n_profile
+          !STOP __LINE__
+          !$omp target teams distribute parallel do simd &
+          !$omp& map(to: bound%solar_irrad, spectrum%solar%solar_flux_band)
+          DO l=1, n_profile
             solar_irrad_band(l)=bound%solar_irrad(l)                           &
               *spectrum%solar%solar_flux_band(i_band)
           END DO
@@ -1208,20 +1299,28 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
 !   Perform interpolation of generalised continuum ESFT/k-terms look-up table
 !   to model grid.
-    DO j=1, spectrum%contgen%n_band_cont(i_band)
-      i_cont_band=spectrum%contgen%index_cont(j, i_band)
-      DO k=1, spectrum%contgen%i_band_k_cont(i_band, i_cont_band)
-        DO i=1, atm%n_layer
-          DO l=1, atm%n_profile
-            k_esft_cont_layer(l,i,k,i_cont_band) = MAX(0.0_RealK,              &
+    n_band = spectrum%contgen%n_band_cont(i_band)
+    !STOP __LINE__
+    IF (n_band > 0) THEN
+      STOP __LINE__
+      !$omp target teams distribute parallel do simd collapse(3) &
+      !$omp& map(to: spectrum%contgen%index_cont, spectrum%contgen%k_lookup_cont) &
+      !$omp& private(i_cont_band)
+      DO i=1, n_layer
+        DO l=1, n_profile
+          DO j=1, n_band
+            i_cont_band=spectrum%contgen%index_cont(j, i_band)
+            DO k=1, spectrum%contgen%i_band_k_cont(i_band, i_cont_band)
+              k_esft_cont_layer(l,i,k,i_cont_band) = MAX(0.0_RealK,              &
                 wt_ct(l,i)*spectrum%contgen%k_lookup_cont(                     &
                 jt_ct(l,i), k, i_cont_band, i_band )                           &
-              + (1.0_RealK - wt_ct(l,i))*spectrum%contgen%k_lookup_cont(       &
+                + (1.0_RealK - wt_ct(l,i))*spectrum%contgen%k_lookup_cont(       &
                 jt_ct(l,i)+1, k, i_cont_band, i_band) )
+            END DO
           END DO
         END DO
       END DO
-    END DO
+    END IF
 
 !   The foreign broadened water vapour continuum is treated as a special case:
 !   The mean molar weight of dry air was used to derive the continuum
@@ -1229,10 +1328,13 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !   here. The terms are therefore scaled to the correct mean molar weight of
 !   dry air here. This ensures a broadening of water vapour by all other gases
 !   even if the atmosphere is not composed of pure air.
-    DO j=1, spectrum%contgen%n_band_cont(i_band)
+    !STOP __LINE__
+    DO j=1, spectrum%contgen%n_band_cont(i_band) ! 0
+      STOP __LINE__
       i_cont_band=spectrum%contgen%index_cont(j, i_band)
       i_gas_band=spectrum%contgen%index_cont_gas_1(i_cont_band)
       IF (spectrum%gas%type_absorb(i_gas_band) == ip_air) THEN
+        STOP __LINE__
         DO k=1, spectrum%contgen%i_band_k_cont(i_band, i_cont_band)
           DO i=1, atm%n_layer
             DO l=1, atm%n_profile
@@ -1245,6 +1347,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       END IF
       i_gas_band=spectrum%contgen%index_cont_gas_2(i_cont_band)
       IF (spectrum%gas%type_absorb(i_gas_band) == ip_air) THEN
+        STOP __LINE__
         DO k=1, spectrum%contgen%i_band_k_cont(i_band, i_cont_band)
           DO i=1, atm%n_layer
             DO l=1, atm%n_profile
@@ -1298,6 +1401,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !   terms needed.
     n_abs=n_gas+n_cont
     IF (l_cont_band) THEN
+      STOP __LINE__
       DO j=1, n_gas
         i_gas_band=spectrum%gas%index_absorb(j, i_band)
         DO j_cont=1, n_cont
@@ -1313,27 +1417,33 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
     nd_k_term=MAX(spectrum%dim%nd_k_term, spectrum%dim%nd_k_term_cont)
 
 !   Allocate absorber arrays
-    ALLOCATE(k_abs_layer(dimen%nd_profile, dimen%nd_layer, nd_k_term, nd_abs))
-    ALLOCATE(k_cont_layer(dimen%nd_profile, dimen%nd_layer,                    &
-                          spectrum%dim%nd_k_term_cont))
-    ALLOCATE(w_abs_esft(nd_k_term, nd_abs))
-    ALLOCATE(index_abs(nd_abs))
-    ALLOCATE(n_abs_esft(nd_abs))
-    ALLOCATE(i_scatter_method_term(nd_k_term, nd_abs))
-    ALLOCATE(l_cont_added(spectrum%dim%nd_cont))
-    ALLOCATE(l_photol_only(nd_abs))
+    CALL reserve(rworkp2l1a1, [dimen%nd_profile, 2*dimen%nd_layer+1, nd_abs], &
+      offload=.TRUE.)
+    CALL reserve(rworkp2l2a1, [dimen%nd_profile, 2*dimen%nd_layer+2, nd_abs], &
+      offload=.TRUE.)
+    CALL reserve(k_abs_layer, [dimen%nd_profile, dimen%nd_layer, nd_k_term, nd_abs], &
+      offload=.TRUE.)
+    CALL reserve(k_cont_layer, &
+      [dimen%nd_profile, dimen%nd_layer, spectrum%dim%nd_k_term_cont], offload=.TRUE.)
+    CALL reserve(w_abs_esft, [nd_k_term, nd_abs], offload=.TRUE.)
+    CALL reserve(index_abs, nd_abs, offload=.TRUE.)
+    CALL reserve(n_abs_esft, nd_abs, offload=.TRUE.)
+    CALL reserve(i_scatter_method_term, [nd_k_term, nd_abs], offload=.TRUE.)
+    CALL reserve(l_cont_added, spectrum%dim%nd_cont, offload=.TRUE.)
+    CALL reserve(l_photol_only, nd_abs, offload=.TRUE.)
 
 !   Get gaseous absorption data for this band.
     l_cont_added=.FALSE.
-    l_photol_only=.FALSE.
     IF (l_gas_band) THEN
-      DO j=1, n_gas
+      !STOP __LINE__
+      DO j=1, n_gas ! 2,3,4,7,10
 
         i_gas_band=spectrum%gas%index_absorb(j, i_band)
 
         index_abs(j)=j
         n_abs_esft(j)=spectrum%gas%i_band_k(i_band, i_gas_band)
-        DO k=1, n_abs_esft(j)
+        !STOP __LINE__
+        DO k=1, n_abs_esft(j) ! 1,2,3,4,5,6,7,8,9,10,11,12,14,17,24
           i_scatter_method_term(k, j)                                          &
             = spectrum%gas%i_scat(k, i_band, i_gas_band)
           w_abs_esft(k, j) = spectrum%gas%w(k, i_band, i_gas_band)
@@ -1347,6 +1457,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
             i_gas_overlap == ip_overlap_single .AND. &
             spectrum%gas%type_absorb(i_gas_band) /= control%i_gas) THEN
           ! If only considering one gas zero the absorption for other species
+          STOP __LINE__
           DO k=1, n_abs_esft(j)
             DO i=1, atm%n_layer
               DO l=1, atm%n_profile
@@ -1357,6 +1468,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
         ELSE IF (spectrum%gas%i_scale_k(i_band, i_gas_band)                    &
             == ip_scale_band) THEN
+          STOP __LINE__
           CALL scale_absorb(ierr, atm%n_profile, atm%n_layer                   &
             , atm%p, atm%t                                                     &
             , gas_frac_rescaled(1, 1, i_gas_band)                              &
@@ -1369,6 +1481,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
             , dimen%nd_profile, dimen%nd_layer                                 &
             , spectrum%dim%nd_scale_variable)
           IF (l_photol_only(j)) THEN
+            STOP __LINE__
             DO i=1, atm%n_layer
               DO l=1, atm%n_profile
                 gas_frac_rescaled(l, i, i_gas_band) = MAX(0.0_RealK, &
@@ -1376,6 +1489,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
               END DO
             END DO
           ELSE
+            STOP __LINE__
             DO i=1, atm%n_layer
               DO l=1, atm%n_profile
                 gas_frac_rescaled(l, i, i_gas_band) = MAX(0.0_RealK, &
@@ -1384,6 +1498,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
               END DO
             END DO
           END IF
+          STOP __LINE__
           DO k=1, n_abs_esft(j)
             DO i=1, atm%n_layer
               DO l=1, atm%n_profile
@@ -1396,8 +1511,10 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
         ELSE IF (spectrum%gas%i_scale_k(i_band, i_gas_band)                    &
             == ip_scale_null) THEN
+          STOP __LINE__
 !         Copy across the unscaled array.
           IF (l_photol_only(j)) THEN
+            STOP __LINE__
             DO k=1, n_abs_esft(j)
               DO i=1, atm%n_layer
                 DO l=1, atm%n_profile
@@ -1407,6 +1524,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
               END DO
             END DO
           ELSE
+            STOP __LINE__
             DO k=1, n_abs_esft(j)
               DO i=1, atm%n_layer
                 DO l=1, atm%n_profile
@@ -1420,11 +1538,12 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
         ELSE IF (spectrum%gas%i_scale_k(i_band, i_gas_band)                    &
             == ip_scale_term) THEN
-          IF (spectrum%gas%i_scale_fnc(i_band, i_gas_band) &
-                == ip_scale_lookup .OR. &
-              spectrum%gas%i_scale_fnc(i_band, i_gas_band) &
-                == ip_scale_t_lookup) THEN
+          !STOP __LINE__
+          IF (spectrum%gas%i_scale_fnc(i_band, i_gas_band)                     &
+               == ip_scale_lookup) THEN
+            !STOP __LINE__
             IF (l_photol_only(j)) THEN
+              STOP __LINE__
               DO k=1, n_abs_esft(j)
                 DO i=1, atm%n_layer
                   DO l=1, atm%n_profile
@@ -1433,9 +1552,13 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
                 END DO
               END DO
             ELSE
-              DO k=1, n_abs_esft(j)
-                DO i=1, atm%n_layer
-                  DO l=1, atm%n_profile
+              !STOP __LINE__
+              nk = n_abs_esft(j)
+              !$omp target teams distribute parallel do simd collapse(3) &
+              !$omp& map(to: atm%gas_mix_ratio)
+              DO k=1, nk
+                DO i=1, n_layer
+                  DO l=1, n_profile
                     k_abs_layer(l, i, k, j) = MAX(0.0_RealK, &
                       k_esft_layer(l, i, k, i_gas_band) &
                       * atm%gas_mix_ratio(l, i, i_gas_band))
@@ -1444,7 +1567,9 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
               END DO
             END IF
           ELSE
-            DO k=1, n_abs_esft(j)
+            !STOP __LINE__
+            DO k=1, n_abs_esft(j) ! 1,2,6,10
+              !STOP __LINE__
               CALL scale_absorb(ierr, atm%n_profile, atm%n_layer              &
                 , atm%p, atm%t                                                &
                 , gas_frac_rescaled(1, 1, i_gas_band)                         &
@@ -1457,6 +1582,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
                 , dimen%nd_profile, dimen%nd_layer                            &
                 , spectrum%dim%nd_scale_variable)
               IF (l_photol_only(j)) THEN
+                STOP __LINE__
                 DO i=1, atm%n_layer
                   DO l=1, atm%n_profile
                     k_abs_layer(l, i, k, j) &
@@ -1465,8 +1591,11 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
                   END DO
                 END DO
               ELSE
-                DO i=1, atm%n_layer
-                  DO l=1, atm%n_profile
+                !STOP __LINE__
+                !$omp target teams distribute parallel do simd collapse(2) &
+                !$omp& map(to: atm%gas_mix_ratio, spectrum%gas%k)
+                DO i=1, n_layer
+                  DO l=1, n_profile
                     k_abs_layer(l, i, k, j) &
                       = spectrum%gas%k(k, i_band, i_gas_band) &
                       * MAX(0.0_RealK, gas_frac_rescaled(l, i, i_gas_band) &
@@ -1481,6 +1610,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !       Add k-distribution of continua that are perfectly correlated with the
 !       k-distribution of this gas.
         IF (l_cont_band) THEN
+          STOP __LINE__
           DO j_cont=1, n_cont
             i_cont_band=spectrum%contgen%index_cont(j_cont, i_band)
             IF (spectrum%contgen%i_cont_overlap_band(i_band, i_cont_band) ==   &
@@ -1488,6 +1618,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
               l_cont_added(i_cont_band)=.TRUE.
               i_gas_band_1=spectrum%contgen%index_cont_gas_1(i_cont_band)
               i_gas_band_2=spectrum%contgen%index_cont_gas_2(i_cont_band)
+              STOP __LINE__
               DO k=1, spectrum%contgen%i_band_k_cont(i_band, i_cont_band)
                 DO i=1, atm%n_layer
                   DO l=1, atm%n_profile
@@ -1498,6 +1629,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
                   END DO
                 END DO
               END DO
+              STOP __LINE__
               CALL sum_k(ierr, atm%n_profile, atm%n_layer, n_abs_esft(j)       &
                 , k_abs_layer(1, 1, 1, j), w_abs_esft(1, j)                    &
                 , spectrum%contgen%i_band_k_cont(i_band, i_cont_band)          &
@@ -1509,12 +1641,16 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
           END DO
         END IF
       END DO
+    ELSE
+      STOP __LINE__
+      l_photol_only=.FALSE.
     END IF
 
 !   Get generalised continuum absorption data for this band.
     IF (l_cont_band) THEN
 !     Scale the continuum ESFT/k-terms
       i_abs=n_gas
+      STOP __LINE__
       DO j=1, n_cont
         i_cont_band=spectrum%contgen%index_cont(j, i_band)
         IF (.NOT. l_cont_added(i_cont_band)) THEN
@@ -1530,6 +1666,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
             =spectrum%contgen%w_cont(1:n_abs_esft(i_abs), i_band, i_cont_band)
           i_gas_band_1=spectrum%contgen%index_cont_gas_1(i_cont_band)
           i_gas_band_2=spectrum%contgen%index_cont_gas_2(i_cont_band)
+          STOP __LINE__
           DO k=1, n_abs_esft(i_abs)
             DO i=1, atm%n_layer
               DO l=1, atm%n_profile
@@ -1555,6 +1692,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       ! Only the selected gas is active in the band. If different, the major
       ! gas is also included but with zero absorption (set above).
       n_gas=0
+      STOP __LINE__
       DO i_abs=1, n_abs
         i = index_abs(i_abs)
         i_gas_band = spectrum%gas%index_absorb(i, i_band)
@@ -1570,10 +1708,12 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
       l_abs_band=(n_abs > 0)
     END IF
 
+    !STOP __LINE__
 !   Allocate space for the Planckian emission fields
     CALL allocate_planck(planck, dimen)
 
     IF (control%isolir == ip_infra_red) THEN
+      !STOP __LINE__
 !     Calculate the change in the thermal source function
 !     across each layer for the infra-red part of the spectrum.
       CALL diff_planck_source(control, dimen, spectrum, atm, bound,          &
@@ -1588,6 +1728,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 
 !     There is no gaseous absorption. Solve for the radiances directly.
 
+      STOP __LINE__
       CALL solve_band_without_gas(ierr                                         &
         , control, dimen, spectrum, atm, cld, bound, radout, i_band            &
 !                 Atmospheric properties
@@ -1648,17 +1789,25 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
         , dimen%nd_brdf_basis_fnc, dimen%nd_brdf_trunc                         &
         , dimen%nd_viewing_level, dimen%nd_direction                           &
         , dimen%nd_source_coeff, dimen%nd_point_tile, dimen%nd_tile            &
+        ! Work arrays
+        , rworkf2l2k1(:, :, 1) &
+        , rworkp1, rworkp2, rworkp3 &
+        , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+        , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+        , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+        , rworkplsc1, rworkplsc2 &
         )
-
 
     ELSE IF (l_abs_band) THEN
 
+      !STOP __LINE__
 !     Gases are included.
 
 !     Treat the gaseous overlaps as directed by the overlap switch.
       SELECT CASE (i_gas_overlap)
 
       CASE (ip_overlap_random, ip_overlap_exact_major, ip_overlap_single)
+        STOP __LINE__
         CALL solve_band_random_overlap(ierr                                    &
           , control, dimen, spectrum, atm, cld, bound, radout, i_band          &
 !                 Atmospheric properties
@@ -1703,7 +1852,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
           , n_column_slv, list_column_slv                                      &
           , i_clm_lyr_chn, i_clm_cld_typ, area_column                          &
 !                 Additional variables required for mcica
-          , l_cloud_cmp, n_cloud_profile, i_cloud_profile                      &
+          , l_cloud_cmp, n_cloud, cloud_layer, cloud_profile &
           , i_cloud_type, dimen%nd_cloud_component                             &
           , control%i_cloud_representation                                     &
 !                 Levels for calculating radiances
@@ -1728,11 +1877,19 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
           , dimen%nd_brdf_basis_fnc, dimen%nd_brdf_trunc                       &
           , dimen%nd_viewing_level, dimen%nd_direction                         &
           , dimen%nd_source_coeff, dimen%nd_point_tile, dimen%nd_tile          &
+          ! Work arrays
+          , rworkf2l2k1 &
+          , rworkp1, rworkp2, rworkp3 &
+          , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+          , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+          , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+          , rworkplsc1, rworkplsc2 &
           )
 
       CASE (ip_overlap_random_resort_rebin)
 !       Set maximum number of ESFT terms needed
         nd_esft_max = MAX(control%n_esft_red, nd_k_term)
+        STOP __LINE__
         CALL solve_band_random_overlap_resort_rebin(ierr                       &
           , control, dimen, spectrum, atm, cld, bound, radout, i_band          &
 !                 Atmospheric properties
@@ -1799,9 +1956,17 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
           , dimen%nd_brdf_basis_fnc, dimen%nd_brdf_trunc                       &
           , dimen%nd_viewing_level, dimen%nd_direction                         &
           , dimen%nd_source_coeff, dimen%nd_point_tile, dimen%nd_tile          &
+          ! Work arrays
+          , rworkf2l2k1(:, :, 1) &
+          , rworkp1, rworkp2, rworkp3 &
+          , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+          , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+          , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+          , rworkplsc1, rworkplsc2 &
           )
 
       CASE (ip_overlap_k_eqv_scl, ip_overlap_k_eqv, ip_overlap_k_eqv_mod)
+        !STOP __LINE__
         CALL solve_band_k_eqv_scl(ierr                                         &
           , control, dimen, spectrum, atm, cld, bound, radout                  &
 !                 Atmospheric properties
@@ -1846,7 +2011,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
           , n_column_slv, list_column_slv                                      &
           , i_clm_lyr_chn, i_clm_cld_typ, area_column                          &
 !                 Additional variables required for mcica
-          , l_cloud_cmp, n_cloud_profile, i_cloud_profile                      &
+          , l_cloud_cmp, n_cloud, cloud_layer, cloud_profile &
           , i_cloud_type, dimen%nd_cloud_component                             &
           , control%i_cloud_representation                                     &
 !                 Levels for calculating radiances
@@ -1871,9 +2036,21 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
           , dimen%nd_brdf_basis_fnc, dimen%nd_brdf_trunc                       &
           , dimen%nd_viewing_level, dimen%nd_direction                         &
           , dimen%nd_source_coeff, dimen%nd_point_tile, dimen%nd_tile          &
+          ! Work arrays
+          , rworkfl1, rworkpl1, rworkp1, rworkp2 &
+          , rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
+          , rworkf0l1, rworkp0l1_1, rworkp0l1_2 &
+          , rworkp3, rworkp4, rworkp2l2_1, rworkf2l2k1(:, :, 1) &
+          , rworkp2l1a1, rworkp2l2a1, rworkpl6 &
+          , rworkp5, rworkp6, rworkp7 &
+          , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+          , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+          , rworkpl19, rworkpl20, rworkpl21, rworkpl22, rworkpl23, rworkpl24 &
+          , rworkplsc1, rworkplsc2 &
           )
 
       CASE (ip_overlap_mix_ses2)
+        STOP __LINE__
         CALL solve_band_ses(ierr                                               &
           , control, dimen, spectrum, atm, cld, bound, radout                  &
 !                 Atmospheric properties
@@ -1923,7 +2100,7 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
           , n_column_slv, list_column_slv                                      &
           , i_clm_lyr_chn, i_clm_cld_typ, area_column                          &
 !                 Additional variables required for mcica
-          , l_cloud_cmp, n_cloud_profile, i_cloud_profile                      &
+          , l_cloud_cmp, n_cloud, cloud_layer, cloud_profile &
           , i_cloud_type, dimen%nd_cloud_component                             &
           , control%i_cloud_representation                                     &
 !                 Levels for calculating radiances
@@ -1949,6 +2126,13 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
           , dimen%nd_brdf_basis_fnc, dimen%nd_brdf_trunc                       &
           , dimen%nd_viewing_level, dimen%nd_direction                         &
           , dimen%nd_source_coeff, dimen%nd_point_tile, dimen%nd_tile          &
+          ! Work arrays
+          , rworkf2l2k1(:, :, 1) &
+          , rworkp1, rworkp2, rworkp3 &
+          , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+          , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+          , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+          , rworkplsc1, rworkplsc2 &
           )
 
       CASE DEFAULT
@@ -1975,192 +2159,175 @@ SUBROUTINE radiance_calc(control, dimen, spectrum, atm, cld, aer, bound, radout)
 !     current layer into a clear atmosphere on the upward flux at the top of
 !     the cloud.
     IF (control%l_cloud_extinction) THEN
+      STOP __LINE__
       IF (control%l_spherical_solar) THEN
-        DO i=n_cloud_top, atm%n_layer
-!CDIR NODEP
-          DO ll=1, n_cloud_profile(i)
-             l=i_cloud_profile(ll, i)
-             radout%cloud_weight_extinction(l, i)                              &
-                =radout%cloud_weight_extinction(l, i) + cld%w_cloud(l, i)      &
-                *radout%flux_direct_clear_sph_band(l, i, i_band)
-             radout%cloud_extinction(l, i)                                     &
-                =radout%cloud_extinction(l, i) + cld%w_cloud(l, i)             &
-                *radout%flux_direct_clear_sph_band(l, i, i_band)               &
-                *cloud_extinction_band(l, i)
-          END DO
+        STOP __LINE__
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          radout%cloud_weight_extinction(l, i)                              &
+            =radout%cloud_weight_extinction(l, i) + cld%w_cloud(l, i)      &
+            *radout%flux_direct_clear_sph_band(l, i, i_band)
+          radout%cloud_extinction(l, i)                                     &
+            =radout%cloud_extinction(l, i) + cld%w_cloud(l, i)             &
+            *radout%flux_direct_clear_sph_band(l, i, i_band)               &
+            *cloud_extinction_band(l, i)
         END DO
       ELSE
-        DO i=n_cloud_top, atm%n_layer
-!CDIR NODEP
-          DO ll=1, n_cloud_profile(i)
-             l=i_cloud_profile(ll, i)
-             radout%cloud_weight_extinction(l, i)                              &
-                =radout%cloud_weight_extinction(l, i) + cld%w_cloud(l, i)      &
-                *radout%flux_direct_clear_band(l, i-1, i_band)
-             radout%cloud_extinction(l, i)                                     &
-                =radout%cloud_extinction(l, i) + cld%w_cloud(l, i)             &
-                *radout%flux_direct_clear_band(l, i-1, i_band)                 &
-                *cloud_extinction_band(l, i)
-          END DO
+        STOP __LINE__
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          radout%cloud_weight_extinction(l, i)                              &
+            =radout%cloud_weight_extinction(l, i) + cld%w_cloud(l, i)      &
+            *radout%flux_direct_clear_band(l, i-1, i_band)
+          radout%cloud_extinction(l, i)                                     &
+            =radout%cloud_extinction(l, i) + cld%w_cloud(l, i)             &
+            *radout%flux_direct_clear_band(l, i-1, i_band)                 &
+            *cloud_extinction_band(l, i)
         END DO
       END IF
     END IF
 
     IF (control%l_cloud_absorptivity) THEN
-      DO i=n_cloud_top, atm%n_layer
-!CDIR NODEP
-        DO ll=1, n_cloud_profile(i)
-           l=i_cloud_profile(ll, i)
-           radout%cloud_weight_absorptivity(l, i)                              &
-              =radout%cloud_weight_absorptivity(l, i) + cld%w_cloud(l, i)      &
-              *ABS(radout%flux_up_clear_band(l, i-1, i_band))
-           radout%cloud_absorptivity(l, i)                                     &
-              =radout%cloud_absorptivity(l, i) + cld%w_cloud(l, i)             &
-              *ABS(radout%flux_up_clear_band(l, i-1, i_band))                  &
-              *cloud_absorptivity_band(l, i)
-        END DO
+      STOP __LINE__
+      DO ll = 1, n_cloud
+        i = cloud_layer(ll)
+        l = cloud_profile(ll)
+        radout%cloud_weight_absorptivity(l, i)                              &
+          =radout%cloud_weight_absorptivity(l, i) + cld%w_cloud(l, i)      &
+          *ABS(radout%flux_up_clear_band(l, i-1, i_band))
+        radout%cloud_absorptivity(l, i)                                     &
+          =radout%cloud_absorptivity(l, i) + cld%w_cloud(l, i)             &
+          *ABS(radout%flux_up_clear_band(l, i-1, i_band))                  &
+          *cloud_absorptivity_band(l, i)
       END DO
     END IF
 
     IF (control%l_ls_cloud_extinction) THEN
+      STOP __LINE__
       IF (control%l_spherical_solar) THEN
-        DO i=n_cloud_top, atm%n_layer
-!CDIR NODEP
-          DO ll=1, n_cloud_profile(i)
-             l=i_cloud_profile(ll, i)
-             radout%ls_cloud_weight_extinction(l, i)                           &
-                =radout%ls_cloud_weight_extinction(l, i)+cld%w_cloud(l, i)     &
-                *(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2))                 &
-                *radout%flux_direct_clear_sph_band(l, i, i_band)
-             radout%ls_cloud_extinction(l, i)                                  &
-                =radout%ls_cloud_extinction(l, i)+cld%w_cloud(l, i)            &
-                *(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2))                 &
-                *radout%flux_direct_clear_sph_band(l, i, i_band)               &
-                *ls_cloud_extinction_band(l, i)
-          END DO
+        STOP __LINE__
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          radout%ls_cloud_weight_extinction(l, i)                           &
+            =radout%ls_cloud_weight_extinction(l, i)+cld%w_cloud(l, i)     &
+            *(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2))                 &
+            *radout%flux_direct_clear_sph_band(l, i, i_band)
+          radout%ls_cloud_extinction(l, i)                                  &
+            =radout%ls_cloud_extinction(l, i)+cld%w_cloud(l, i)            &
+            *(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2))                 &
+            *radout%flux_direct_clear_sph_band(l, i, i_band)               &
+            *ls_cloud_extinction_band(l, i)
         END DO
       ELSE
-        DO i=n_cloud_top, atm%n_layer
-!CDIR NODEP
-          DO ll=1, n_cloud_profile(i)
-             l=i_cloud_profile(ll, i)
-             radout%ls_cloud_weight_extinction(l, i)                           &
-                =radout%ls_cloud_weight_extinction(l, i)+cld%w_cloud(l, i)     &
-                *(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2))                 &
-                *radout%flux_direct_clear_band(l, i-1, i_band)
-             radout%ls_cloud_extinction(l, i)                                  &
-                =radout%ls_cloud_extinction(l, i)+cld%w_cloud(l, i)            &
-                *(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2))                 &
-                *radout%flux_direct_clear_band(l, i-1, i_band)                 &
-                *ls_cloud_extinction_band(l, i)
-          END DO
+        STOP __LINE__
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          radout%ls_cloud_weight_extinction(l, i)                           &
+            =radout%ls_cloud_weight_extinction(l, i)+cld%w_cloud(l, i)     &
+            *(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2))                 &
+            *radout%flux_direct_clear_band(l, i-1, i_band)
+          radout%ls_cloud_extinction(l, i)                                  &
+            =radout%ls_cloud_extinction(l, i)+cld%w_cloud(l, i)            &
+            *(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2))                 &
+            *radout%flux_direct_clear_band(l, i-1, i_band)                 &
+            *ls_cloud_extinction_band(l, i)
         END DO
       END IF
     END IF
 
     IF (control%l_ls_cloud_absorptivity) THEN
-      DO i=n_cloud_top, atm%n_layer
-!CDIR NODEP
-        DO ll=1, n_cloud_profile(i)
-           l=i_cloud_profile(ll, i)
-           radout%ls_cloud_weight_absorptivity(l, i)                           &
-              =radout%ls_cloud_weight_absorptivity(l, i)                       &
-              +cld%w_cloud(l, i)*(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2)) &
-              *ABS(radout%flux_up_clear_band(l, i-1, i_band))
-           radout%ls_cloud_absorptivity(l, i)                                  &
-              =radout%ls_cloud_absorptivity(l, i)                              &
-              +cld%w_cloud(l, i)*(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2)) &
-              *ABS(radout%flux_up_clear_band(l, i-1, i_band))                  &
-              *ls_cloud_absorptivity_band(l, i)
-        END DO
+      STOP __LINE__
+      DO ll = 1, n_cloud
+        i = cloud_layer(ll)
+        l = cloud_profile(ll)
+        radout%ls_cloud_weight_absorptivity(l, i)                           &
+          =radout%ls_cloud_weight_absorptivity(l, i)                       &
+          +cld%w_cloud(l, i)*(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2)) &
+          *ABS(radout%flux_up_clear_band(l, i-1, i_band))
+        radout%ls_cloud_absorptivity(l, i)                                  &
+          =radout%ls_cloud_absorptivity(l, i)                              &
+          +cld%w_cloud(l, i)*(cld%frac_cloud(l,i,1)+cld%frac_cloud(l,i,2)) &
+          *ABS(radout%flux_up_clear_band(l, i-1, i_band))                  &
+          *ls_cloud_absorptivity_band(l, i)
       END DO
     END IF
 
     IF (control%l_cnv_cloud_extinction) THEN
+      STOP __LINE__
       IF (control%l_spherical_solar) THEN
-        DO i=n_cloud_top, atm%n_layer
-!CDIR NODEP
-          DO ll=1, n_cloud_profile(i)
-             l=i_cloud_profile(ll, i)
-             radout%cnv_cloud_weight_extinction(l, i)                          &
-                =radout%cnv_cloud_weight_extinction(l, i)+cld%w_cloud(l, i)    &
-                *(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4))                 &
-                *radout%flux_direct_clear_sph_band(l, i, i_band)
-             radout%cnv_cloud_extinction(l, i)                                 &
-                =radout%cnv_cloud_extinction(l, i)+cld%w_cloud(l, i)           &
-                *(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4))                 &
-                *radout%flux_direct_clear_sph_band(l, i, i_band)               &
-                *cnv_cloud_extinction_band(l, i)
-          END DO
+        STOP __LINE__
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          radout%cnv_cloud_weight_extinction(l, i)                          &
+            =radout%cnv_cloud_weight_extinction(l, i)+cld%w_cloud(l, i)    &
+            *(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4))                 &
+            *radout%flux_direct_clear_sph_band(l, i, i_band)
+          radout%cnv_cloud_extinction(l, i)                                 &
+            =radout%cnv_cloud_extinction(l, i)+cld%w_cloud(l, i)           &
+            *(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4))                 &
+            *radout%flux_direct_clear_sph_band(l, i, i_band)               &
+            *cnv_cloud_extinction_band(l, i)
         END DO
       ELSE
-        DO i=n_cloud_top, atm%n_layer
-!CDIR NODEP
-          DO ll=1, n_cloud_profile(i)
-             l=i_cloud_profile(ll, i)
-             radout%cnv_cloud_weight_extinction(l, i)                          &
-                =radout%cnv_cloud_weight_extinction(l, i)+cld%w_cloud(l, i)    &
-                *(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4))                 &
-                *radout%flux_direct_clear_band(l, i-1, i_band)
-             radout%cnv_cloud_extinction(l, i)                                 &
-                =radout%cnv_cloud_extinction(l, i)+cld%w_cloud(l, i)           &
-                *(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4))                 &
-                *radout%flux_direct_clear_band(l, i-1, i_band)                 &
-                *cnv_cloud_extinction_band(l, i)
-          END DO
+        STOP __LINE__
+        DO ll = 1, n_cloud
+          i = cloud_layer(ll)
+          l = cloud_profile(ll)
+          radout%cnv_cloud_weight_extinction(l, i)                          &
+            =radout%cnv_cloud_weight_extinction(l, i)+cld%w_cloud(l, i)    &
+            *(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4))                 &
+            *radout%flux_direct_clear_band(l, i-1, i_band)
+          radout%cnv_cloud_extinction(l, i)                                 &
+            =radout%cnv_cloud_extinction(l, i)+cld%w_cloud(l, i)           &
+            *(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4))                 &
+            *radout%flux_direct_clear_band(l, i-1, i_band)                 &
+            *cnv_cloud_extinction_band(l, i)
         END DO
       END IF
     END IF
 
     IF (control%l_cnv_cloud_absorptivity) THEN
-      DO i=n_cloud_top, atm%n_layer
-!CDIR NODEP
-        DO ll=1, n_cloud_profile(i)
-           l=i_cloud_profile(ll, i)
-           radout%cnv_cloud_weight_absorptivity(l, i)                          &
-              =radout%cnv_cloud_weight_absorptivity(l, i)                      &
-              +cld%w_cloud(l, i)*(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4)) &
-              *ABS(radout%flux_up_clear_band(l, i-1, i_band))
-           radout%cnv_cloud_absorptivity(l, i)                                 &
-              =radout%cnv_cloud_absorptivity(l, i)                             &
-              +cld%w_cloud(l, i)*(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4)) &
-              *ABS(radout%flux_up_clear_band(l, i-1, i_band))                  &
-              *cnv_cloud_absorptivity_band(l, i)
-        END DO
+      STOP __LINE__
+      DO ll = 1, n_cloud
+        i = cloud_layer(ll)
+        l = cloud_profile(ll)
+        radout%cnv_cloud_weight_absorptivity(l, i)                          &
+          =radout%cnv_cloud_weight_absorptivity(l, i)                      &
+          +cld%w_cloud(l, i)*(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4)) &
+          *ABS(radout%flux_up_clear_band(l, i-1, i_band))
+        radout%cnv_cloud_absorptivity(l, i)                                 &
+          =radout%cnv_cloud_absorptivity(l, i)                             &
+          +cld%w_cloud(l, i)*(cld%frac_cloud(l,i,3)+cld%frac_cloud(l,i,4)) &
+          *ABS(radout%flux_up_clear_band(l, i-1, i_band))                  &
+          *cnv_cloud_absorptivity_band(l, i)
       END DO
     END IF
 
 !   Deallocate the single scattering propeties.
-    CALL deallocate_ss_prop(ss_prop)
-
-!   Deallocate absorber arrays
-    DEALLOCATE(l_photol_only)
-    DEALLOCATE(l_cont_added)
-    DEALLOCATE(i_scatter_method_term)
-    DEALLOCATE(n_abs_esft)
-    DEALLOCATE(index_abs)
-    DEALLOCATE(w_abs_esft)
-    DEALLOCATE(k_cont_layer)
-    DEALLOCATE(k_abs_layer)
-
+    !STOP __LINE__
+    !CALL deallocate_ss_prop(ss_prop)
 
 !   Make any adjustments to fluxes and radiances to convert to actual values.
 !   This is done inside the loop over bands to allow for division of the
 !   output fluxes between separate diagnostic bands.
     IF (control%isolir == ip_infra_red) THEN
+      !STOP __LINE__
       CALL adjust_ir_radiance(control, spectrum, atm, radout, &
         planck, i_band, l_clear_band)
     END IF
 
 !   Deallocate Planckian emission fields
-    CALL deallocate_planck(planck)
+    !CALL deallocate_planck(planck)
 
   END DO ! i_band
 
-  CALL deallocate_sph(sph)
-  DEALLOCATE(photol)
-  DEALLOCATE(wt_gas)
-  DEALLOCATE(jt_gas)
+  !STOP __LINE__
+  !CALL deallocate_sph(sph)
 
   9999 CONTINUE
   IF (ierr /= i_normal) THEN

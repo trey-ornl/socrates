@@ -90,13 +90,14 @@ SUBROUTINE set_cloud_pointer(ierr                                       &
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
-  DO k=1, n_condensed
+  DO k=1, n_condensed ! 1,2
 
     i_cloud_type(k)=0
 !   Set pointers for valid condensed components.
     SELECT CASE (i_cloud_representation)
     CASE (ip_cloud_homogen, ip_cloud_combine_homogen)
 
+      !STOP __LINE__
       IF (type_condensed(k) == ip_clcmp_st_water) THEN
         i_cloud_type(k)=ip_cloud_type_homogen
       ELSE IF (type_condensed(k) == ip_clcmp_st_ice) THEN
@@ -105,6 +106,7 @@ SUBROUTINE set_cloud_pointer(ierr                                       &
 
     CASE (ip_cloud_ice_water, ip_cloud_combine_ice_water)
 
+      STOP __LINE__
       IF (type_condensed(k) == ip_clcmp_st_water) THEN
         i_cloud_type(k)=ip_cloud_type_water
       ELSE IF (type_condensed(k) == ip_clcmp_st_ice) THEN
@@ -113,6 +115,7 @@ SUBROUTINE set_cloud_pointer(ierr                                       &
 
     CASE (ip_cloud_conv_strat, ip_cloud_split_homogen)
 
+      STOP __LINE__
       IF (type_condensed(k) == ip_clcmp_st_water) THEN
         i_cloud_type(k)=ip_cloud_type_strat
       ELSE IF (type_condensed(k) == ip_clcmp_st_ice) THEN
@@ -125,6 +128,7 @@ SUBROUTINE set_cloud_pointer(ierr                                       &
 
     CASE (ip_cloud_csiw, ip_cloud_split_ice_water)
 
+      STOP __LINE__
       IF (type_condensed(k) == ip_clcmp_st_water) THEN
         i_cloud_type(k)=ip_cloud_type_sw
       ELSE IF (type_condensed(k) == ip_clcmp_st_ice) THEN
@@ -153,21 +157,25 @@ SUBROUTINE set_cloud_pointer(ierr                                       &
 
     IF (type_condensed(k) == ip_clcmp_st_water) THEN
 
+      !STOP __LINE__
       i_phase_cmp(k)=ip_phase_water
       l_cloud_cmp(k)=l_drop
 
     ELSE IF (type_condensed(k) == ip_clcmp_st_ice) THEN
 
+      !STOP __LINE__
       i_phase_cmp(k)=ip_phase_ice
       l_cloud_cmp(k)=l_ice
 
     ELSE IF (type_condensed(k) == ip_clcmp_cnv_water) THEN
 
+      STOP __LINE__
       i_phase_cmp(k)=ip_phase_water
       l_cloud_cmp(k)=l_drop
 
     ELSE IF (type_condensed(k) == ip_clcmp_cnv_ice) THEN
 
+      STOP __LINE__
       i_phase_cmp(k)=ip_phase_ice
       l_cloud_cmp(k)=l_ice
 

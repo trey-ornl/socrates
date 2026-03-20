@@ -70,6 +70,7 @@ SUBROUTINE rescale_tau_omega(n_profile                                  &
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+  !$omp target teams distribute parallel do simd collapse(2)
   DO i=i_layer_first, i_layer_last
     DO l=1, n_profile
       tau(l, i)=tau(l, i)*(1.0e+00_RealK                                &

@@ -119,6 +119,9 @@ SUBROUTINE single_scattering(i_scatter_method_band                      &
   IF ((i_scatter_method_band == ip_scatter_full) .OR.                   &
       (i_scatter_method_band == ip_scatter_approx)) THEN
 
+    !STOP __LINE__
+    !$omp target teams distribute parallel do simd collapse(2) &
+    !$omp& private(k_total)
     DO i=i_first_layer, i_last_layer
       DO l=1, n_profile
         k_total=k_grey_tot(l, i)+k_gas_abs(l, i)
@@ -138,6 +141,7 @@ SUBROUTINE single_scattering(i_scatter_method_band                      &
 !   approximation as scattering is still dominated by the
 !   forward peak.
 
+    STOP __LINE__
     DO i=i_first_layer, i_last_layer
       DO l=1, n_profile
         tau(l, i)=(k_grey_tot(l, i)+k_gas_abs(l, i)                     &
@@ -153,6 +157,7 @@ SUBROUTINE single_scattering(i_scatter_method_band                      &
 !   of scattering in the IR, but may occasionally be appropriate
 !   if the asymmetry is low.
 
+    STOP __LINE__
     DO i=i_first_layer, i_last_layer
       DO l=1, n_profile
         tau(l, i)=(k_grey_tot(l, i)+k_gas_abs(l, i))                    &

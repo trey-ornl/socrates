@@ -115,29 +115,31 @@ SUBROUTINE overlap_coupled(n_profile, n_layer, n_cloud_top              &
       dp_corr                                                           &
 !       Pressure scale over which correlation between cloudy
 !       layers is lost
-    , corr_factor(nd_profile, nd_region)
+    , corr_factor(nd_region)
 !       Correlation factors for each region across the boundary
 !       between layers: this represents the fraction of the
 !       potentially maximally overlapped region that is actually
 !       maximally overlapped.
   REAL (RealK) ::                                                       &
-      area_lower(nd_profile, nd_region)                                 &
+      area_lower(nd_region)                                 &
 !       Areas of regions in lower layer
-    , area_upper(nd_profile, nd_region)                                 &
+    , area_upper(nd_region)                                 &
 !       Areas of regions in lower layer
-    , area_overlap(nd_profile, nd_region, nd_region)                    &
+    , area_overlap(nd_region, nd_region)                    &
 !       Areas of overlap between the different regions:
 !       the first index refers to the upper layer
-    , area_random_upper(nd_profile, nd_region)                          &
+    , area_random_upper(nd_region)                          &
 !       Areas of each region in the upper layer
 !       to be overlapped randomly
-    , area_random_lower(nd_profile, nd_region)                          &
+    , area_random_lower(nd_region)                          &
 !       Areas of each region in the lower layer
 !       to be overlapped randomly
-    , area_random_tot(nd_profile)                                       &
+    , area_random_tot                                       &
 !       Total randomly overlapped area
     , tol_cloud
 !       Tolerance used to detect cloud amounts of 0
+
+  REAL (RealK) :: tmp_cloud_cover
 
   INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
   INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -151,300 +153,252 @@ SUBROUTINE overlap_coupled(n_profile, n_layer, n_cloud_top              &
   tol_cloud=1.0e+02_RealK*EPSILON(tol_cloud)
 
 ! Set the free fractions in each layer.
+  !$omp target teams distribute parallel do simd collapse(2)
   DO i=n_cloud_top, n_layer
     DO l=1, n_profile
       w_free(l, i)=1.0e+00_RealK-w_cloud(l, i)
     END DO
   END DO
 
+  !$omp target teams distribute thread_limit(64) &
+  !$omp& private(tmp_cloud_cover)
+  DO l=1, n_profile
+
 ! Use the total cloud cover temporarily to hold the clear-sky
 ! fraction and convert back to cloud cover later.
-  DO l=1, n_profile
     IF (w_free(l, n_cloud_top) > tol_cloud) THEN
-      tot_cloud_cover(l)=w_free(l, n_cloud_top)
+      tmp_cloud_cover=w_free(l, n_cloud_top)
     ELSE
-      tot_cloud_cover(l) = 0.0e+00_RealK
+      tmp_cloud_cover = 0.0e+00_RealK
     END IF
-  END DO
-
 
 ! We consider each boundary in turn, comparing the fractions
 ! of each region in the layers above and below the boundary.
 
-! Initialize for the layer above the clouds: here the clear
-! region will cover the grid-box.
-  DO k=1, n_region
-    IF (type_region(k) == ip_region_clear) THEN
-      DO l=1, n_profile
-        area_upper(l, k)=1.0e+00_RealK
-      END DO
-    ELSE
-      DO l=1, n_profile
-        area_upper(l, k)=0.0e+00_RealK
-      END DO
-    END IF
-  END DO
-
-  DO i=n_cloud_top-1, n_layer
-
-!   Set the correlations between like regions at each interface.
-
-    IF ( (i_cloud == ip_cloud_triple).OR.                               &
-         (i_cloud == ip_cloud_mix_max) ) THEN
+    !$omp parallel do &
+    !$omp& private(area_lower, area_overlap, area_upper) &
+    !$omp& private(area_random_lower, area_random_upper, area_random_tot) &
+    !$omp& private(corr_factor, dp_corr)
+    DO i=n_cloud_top-1, n_layer
 
       DO k=1, n_region
-        DO l=1, n_profile
-          corr_factor(l, k)=1.0e+00_RealK
-        END DO
-      END DO
+        !   Set the correlations between like regions at each interface.
 
-    ELSE IF (i_cloud == ip_cloud_mix_random) THEN
+        IF ( (i_cloud == ip_cloud_triple).OR.                               &
+          (i_cloud == ip_cloud_mix_max) ) THEN
 
-      DO k=1, n_region
-        DO l=1, n_profile
-          corr_factor(l, k)=0.0e+00_RealK
-        END DO
-      END DO
+          corr_factor(k)=1.0e+00_RealK
 
-    ELSE IF ( (i_cloud == ip_cloud_part_corr).OR.                       &
-              (i_cloud == ip_cloud_part_corr_cnv) ) THEN
+        ELSE IF (i_cloud == ip_cloud_mix_random) THEN
 
-      DO k=1, n_region
+          corr_factor(k)=0.0e+00_RealK
 
-!       Experimental version: set the pressure scales over
-!       which decorrelation occurs.
-        IF (type_region(k) == ip_region_clear) THEN
-          dp_corr=1.0e+00_RealK
-        ELSE IF (type_region(k) == ip_region_strat) THEN
-          dp_corr=dp_corr_strat
-        ELSE IF (type_region(k) == ip_region_conv) THEN
-          dp_corr=dp_corr_conv
-        END IF
+        ELSE IF ( (i_cloud == ip_cloud_part_corr).OR.                       &
+          (i_cloud == ip_cloud_part_corr_cnv) ) THEN
 
-        IF ( (i <  n_layer).AND.(i >  1) ) THEN
-          DO l=1, n_profile
-            corr_factor(l, k)=EXP((p(l, i)-p(l, i+1))/dp_corr)
-          END DO
-        ELSE
-!         At the surface and the top of the atmosphere
-!         the correlation factor is irrelevant.
-          DO l=1, n_profile
-            corr_factor(l, k)=1.0e+00_RealK
-          END DO
+
+          !       Experimental version: set the pressure scales over
+          !       which decorrelation occurs.
+          IF (type_region(k) == ip_region_clear) THEN
+            dp_corr=1.0e+00_RealK
+          ELSE IF (type_region(k) == ip_region_strat) THEN
+            dp_corr=dp_corr_strat
+          ELSE IF (type_region(k) == ip_region_conv) THEN
+            dp_corr=dp_corr_conv
+          END IF
+
+          IF ( (i <  n_layer).AND.(i >  1) ) THEN
+            corr_factor(k)=EXP((p(l, i)-p(l, i+1))/dp_corr)
+          ELSE
+            !         At the surface and the top of the atmosphere
+            !         the correlation factor is irrelevant.
+            corr_factor(k)=1.0e+00_RealK
+          END IF
+
         END IF
 
       END DO
 
-    END IF
+      DO k=1, n_region
 
-!   Set areas of the regions in the lower layer.
-    DO k=1, n_region
-      IF (i <  n_layer) THEN
-        IF (type_region(k) == ip_region_clear) THEN
-          DO l=1, n_profile
-            area_lower(l, k)=w_free(l, i+1)
-          END DO
+        IF (i < n_cloud_top) THEN
+          ! Initialize for the layer above the clouds: here the clear
+          ! region will cover the grid-box.
+          IF (type_region(k) == ip_region_clear) THEN
+            area_upper(k)=1.0e+00_RealK
+          ELSE
+            area_upper(k)=0.0e+00_RealK
+          END IF
         ELSE
-          DO l=1, n_profile
-            area_lower(l, k)=w_cloud(l, i+1)                            &
+          IF (type_region(k) == ip_region_clear) THEN
+            area_upper(k)=w_free(l, i)
+          ELSE
+            area_upper(k)=w_cloud(l, i)*frac_region(l, i, k)
+          END IF
+        END IF
+
+        IF (i <  n_layer) THEN
+          IF (type_region(k) == ip_region_clear) THEN
+            area_lower(k)=w_free(l, i+1)
+          ELSE
+            area_lower(k)=w_cloud(l, i+1)                            &
               *frac_region(l, i+1, k)
-          END DO
-        END IF
-      ELSE
-!       At the very bottom of the column we imagine a notional
-!       clear layer below the ground surface.
-        IF (type_region(k) == ip_region_clear) THEN
-          DO l=1, n_profile
-            area_lower(l, k)=1.0e+00_RealK
-          END DO
+          END IF
         ELSE
-          DO l=1, n_profile
-            area_lower(l, k)=0.0e+00_RealK
-          END DO
+          !       At the very bottom of the column we imagine a notional
+          !       clear layer below the ground surface.
+          IF (type_region(k) == ip_region_clear) THEN
+            area_lower(k)=1.0e+00_RealK
+          ELSE
+            area_lower(k)=0.0e+00_RealK
+          END IF
         END IF
-      END IF
 
-!     Begin by setting the maximally overlapped parts of the
-!     atmospheric column. The area of common overlap betwen
-!     like regions may be incremented by randomly overlapped
-!     fractions later.
+        !     Begin by setting the maximally overlapped parts of the
+        !     atmospheric column. The area of common overlap betwen
+        !     like regions may be incremented by randomly overlapped
+        !     fractions later.
 
-      DO l=1, n_profile
-        area_overlap(l, k, k)=corr_factor(l, k)                         &
-          *MIN(area_lower(l, k), area_upper(l, k))
+        area_overlap(k, k)=corr_factor(k)                         &
+          *MIN(area_lower(k), area_upper(k))
+
       END DO
 
-    END DO
+      !   Calculate total column cloud cover for use as a diagnostic.
+      !   (Done at this stage to make use of the maximally overlapped
+      !   fractions before they are incremented.)
+      !   We calculate this quantity by imagining a totally transparent
+      !   atmosphere containing totally opaque clouds and finding the
+      !   transmission.
 
-!   Calculate total column cloud cover for use as a diagnostic.
-!   (Done at this stage to make use of the maximally overlapped
-!   fractions before they are incremented.)
-!   We calculate this quantity by imagining a totally transparent
-!   atmosphere containing totally opaque clouds and finding the
-!   transmission.
+      IF ( (i_cloud == ip_cloud_mix_max)    .OR.                          &
+        (i_cloud == ip_cloud_mix_random) .OR.                          &
+        (i_cloud == ip_cloud_part_corr) ) THEN
 
-    IF ( (i_cloud == ip_cloud_mix_max)    .OR.                          &
-         (i_cloud == ip_cloud_mix_random) .OR.                          &
-         (i_cloud == ip_cloud_part_corr) ) THEN
+        IF ( (i >= n_cloud_top).AND.(i < n_layer) ) THEN
 
-      IF ( (i >= n_cloud_top).AND.(i < n_layer) ) THEN
-
-        DO l=1, n_profile
           IF (w_free(l, i+1) > tol_cloud) THEN
-            tot_cloud_cover(l)=tot_cloud_cover(l)*w_free(l, i+1) /      &
-              (1.0e+00_RealK - area_overlap(l, 2, 2))
+            !$omp atomic update
+            tmp_cloud_cover=tmp_cloud_cover*w_free(l, i+1) /      &
+              (1.0e+00_RealK - area_overlap(2, 2))
           ELSE
-            tot_cloud_cover(l) = 0.0e+00_RealK
+            !$omp atomic write
+            tmp_cloud_cover = 0.0e+00_RealK
           END IF
-        END DO
 
-      END IF
+        END IF
 
-    ELSE IF ( (i_cloud == ip_cloud_triple)         .OR.                 &
-              (i_cloud == ip_cloud_part_corr_cnv) ) THEN
+      ELSE IF ( (i_cloud == ip_cloud_triple)         .OR.                 &
+        (i_cloud == ip_cloud_part_corr_cnv) ) THEN
 
-      IF ( (i >= n_cloud_top).AND.(i < n_layer) ) THEN
+        IF ( (i >= n_cloud_top).AND.(i < n_layer) ) THEN
 
-        DO l=1, n_profile
           IF (w_free(l, i+1) > tol_cloud) THEN
-            tot_cloud_cover(l)=tot_cloud_cover(l)*w_free(l, i+1) /      &
-              (1.0e+00_RealK - area_overlap(l, 2, 2)                    &
-                             - area_overlap(l, 3, 3))
+            !$omp atomic update
+            tmp_cloud_cover=tmp_cloud_cover*w_free(l, i+1) /      &
+              (1.0e+00_RealK - area_overlap(2, 2)                    &
+              - area_overlap(3, 3))
           ELSE
-            tot_cloud_cover(l) = 0.0e+00_RealK
+            !$omp atomic write
+            tmp_cloud_cover = 0.0e+00_RealK
           END IF
-        END DO
+
+        END IF
 
       END IF
 
-    END IF
-
-!   Find the remaining areas of overlap on the assumption that
-!   the overlap is random. We initialize the areas of overlap to
-!   0 and reset later when such an area is present.
-    DO k=1, n_region
-      DO j=1, k-1
-        DO l=1, n_profile
-          area_overlap(l, k, j)=0.0e+00_RealK
-          area_overlap(l, j, k)=0.0e+00_RealK
+      !   Find the remaining areas of overlap on the assumption that
+      !   the overlap is random. We initialize the areas of overlap to
+      !   0 and reset later when such an area is present.
+      DO k=1, n_region
+        DO j=1, k-1
+          area_overlap(k, j)=0.0e+00_RealK
+          area_overlap(j, k)=0.0e+00_RealK
         END DO
       END DO
-    END DO
 
-    DO l=1, n_profile
-      area_random_tot(l)=1.0e+00_RealK-area_overlap(l, 1, 1)
-    END DO
-    DO k=2, n_region
-      DO l=1, n_profile
-        area_random_tot(l)=area_random_tot(l)-area_overlap(l, k, k)
+      area_random_tot=1.0e+00_RealK-area_overlap(1, 1)
+      DO k=2, n_region
+        area_random_tot=area_random_tot-area_overlap(k, k)
       END DO
-    END DO
-    DO k=1, n_region
-      DO l=1, n_profile
-        area_random_upper(l, k)                                         &
-          =area_upper(l, k)-area_overlap(l, k, k)
-        area_random_lower(l, k)                                         &
-          =area_lower(l, k)-area_overlap(l, k, k)
+      DO k=1, n_region
+        area_random_upper(k)                                         &
+          =area_upper(k)-area_overlap(k, k)
+        area_random_lower(k)                                         &
+          =area_lower(k)-area_overlap(k, k)
       END DO
-    END DO
-!   To calculate the contributions of random overlap to the
-!   areas of overlap we take the randomly overlapped portion
-!   of the kth region in the upper layer. The probability that
-!   this is overalpped with the randomly overlapped portion of
-!   the jth region in the lower layer will be equal to
-!   the randomly overlapped area of the lower jth region divided
-!   by the total randomly overalpped area. The ratio might become
-!   ill-conditioned for small amounts of cloud, the but this
-!   should not be an issue as the randomly overalpped area would
-!   then be small.
-    DO k=1, n_region
-      DO j=1, n_region
-        DO l=1, n_profile
-          IF (area_random_tot(l) >  tol_cloud) THEN
-            area_overlap(l, k, j)=area_overlap(l, k, j)                 &
-              +area_random_upper(l, k)                                  &
-              *area_random_lower(l, j)/area_random_tot(l)
+      !   To calculate the contributions of random overlap to the
+      !   areas of overlap we take the randomly overlapped portion
+      !   of the kth region in the upper layer. The probability that
+      !   this is overalpped with the randomly overlapped portion of
+      !   the jth region in the lower layer will be equal to
+      !   the randomly overlapped area of the lower jth region divided
+      !   by the total randomly overalpped area. The ratio might become
+      !   ill-conditioned for small amounts of cloud, the but this
+      !   should not be an issue as the randomly overalpped area would
+      !   then be small.
+      DO k=1, n_region
+        DO j=1, n_region
+          IF (area_random_tot >  tol_cloud) THEN
+            area_overlap(k, j)=area_overlap(k, j)                 &
+              +area_random_upper(k)                                  &
+              *area_random_lower(j)/area_random_tot
           END IF
         END DO
       END DO
-    END DO
 
-!   Now proceed to find the energy transfer coefficients
-!   between the various regions.
+      !   Now proceed to find the energy transfer coefficients
+      !   between the various regions.
 
-!   Coefficients for the downward transfer of energy:
+      !   Coefficients for the downward transfer of energy:
 
-!   To avoid division by 0 we initialize to default values
-!   and reset.
-    DO k=1, n_region
-      DO l=1, n_profile
+      !   To avoid division by 0 we initialize to default values
+      !   and reset.
+      DO k=1, n_region
         cloud_overlap(l, i, n_region*(k-1)+k)=1.0e+00_RealK
-      END DO
-      DO j=1, k-1
-        DO l=1, n_profile
+        DO j=1, k-1
           cloud_overlap(l, i, n_region*(j-1)+k)=0.0e+00_RealK
           cloud_overlap(l, i, n_region*(k-1)+j)=0.0e+00_RealK
         END DO
       END DO
-    END DO
 
-    DO k=1, n_region
-      DO l=1, n_profile
-        IF (area_upper(l, k) >  tol_cloud) THEN
+      DO k=1, n_region
+        IF (area_upper(k) >  tol_cloud) THEN
           DO j=1, n_region
             cloud_overlap(l, i, n_region*(j-1)+k)                       &
-              =area_overlap(l, k, j)/area_upper(l, k)
+              =area_overlap(k, j)/area_upper(k)
           END DO
         END IF
       END DO
-    END DO
 
 
-!   Coefficients for upward flow of energy:
+      !   Coefficients for upward flow of energy:
 
-!   To avoid division by 0 we initialize to default values
-!   and reset.
-    DO k=1, n_region
-      DO l=1, n_profile
+      !   To avoid division by 0 we initialize to default values
+      !   and reset.
+      DO k=1, n_region
         cloud_overlap(l, i, n_region*(n_region+k-1)+k)                  &
           =1.0e+00_RealK
-      END DO
-      DO j=1, k-1
-        DO l=1, n_profile
+        DO j=1, k-1
           cloud_overlap(l, i, n_region*(n_region+j-1)+k)                &
             =0.0e+00_RealK
           cloud_overlap(l, i, n_region*(n_region+k-1)+j)                &
             =0.0e+00_RealK
         END DO
       END DO
-    END DO
 
-    DO k=1, n_region
-      DO l=1, n_profile
-        IF (area_lower(l, k) >  tol_cloud) THEN
+      DO k=1, n_region
+        IF (area_lower(k) >  tol_cloud) THEN
           DO j=1, n_region
             cloud_overlap(l, i, n_region*(n_region+j-1)+k)              &
-              =area_overlap(l, j, k)/area_lower(l, k)
+              =area_overlap(j, k)/area_lower(k)
           END DO
         END IF
       END DO
+
     END DO
 
-
-!   Reassign the fractions in the upper layer to step down
-!   through the atmosphere.
-    IF (i <  n_layer) THEN
-      DO k=1, n_region
-        DO l=1, n_profile
-          area_upper(l, k)=area_lower(l, k)
-        END DO
-      END DO
-    END IF
-
-  END DO
-
-  DO l=1, n_profile
-     tot_cloud_cover(l)=1.0e+00_RealK-tot_cloud_cover(l)
+    tot_cloud_cover(l)=1.0e+00_RealK-tmp_cloud_cover
   END DO
 
 

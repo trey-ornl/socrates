@@ -215,6 +215,7 @@ SUBROUTINE opt_prop_aerosol(ierr                                        &
 !       Loop variable
     , i_pointer
 !       Temporary pointer
+  REAL (RealK) :: asymmetry_l, k_scatter_l, ks_phf_l, weight_upper_l
   REAL (RealK) ::                                                       &
       k_scatter(nd_profile)                                             &
 !       Scattering of current extinction of the current aerosol
@@ -270,6 +271,78 @@ SUBROUTINE opt_prop_aerosol(ierr                                        &
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+  !$omp target teams distribute parallel do simd collapse(2) &
+  !$omp& private(asymmetry_l, i_pointer, j, k_scatter_l, ks_phf_l, weight_upper_l)
+  DO i=first_layer, last_layer
+    DO l=1, n_profile
+
+      DO j_mr=1, n_aerosol_mr
+
+        !  Test to see if this aerosol is radiatively active:
+        IF (aerosol_mr_source(j_mr) == ip_aersrc_cusack_ron .OR.            &
+          aerosol_mr_source(j_mr) == ip_aersrc_classic_ron  .OR.          &
+          aerosol_mr_source(j_mr) == ip_aersrc_arcl_ron ) THEN
+
+          !   Get the J relevant for the spectral information
+          j=aerosol_mr_type_index(j_mr)
+
+          !   Optimise two stream cases most often used.
+          IF ( (n_order_phase == 1) .AND.                                     &
+            (i_aerosol_parametrization(j) == ip_aerosol_param_dry) .AND.      &
+            l_rescale .AND. (n_order_forward == 2) ) THEN
+
+            k_ext_tot(l, i)=k_ext_tot(l, i)                               &
+              +aerosol_mix_ratio(l, i, j_mr)                              &
+              *aerosol_absorption(1, j)
+            k_scatter_l=aerosol_mix_ratio(l, i, j_mr)                    &
+              *aerosol_scattering(1, j)
+            k_ext_scat(l, i)=k_ext_scat(l, i)                             &
+              +k_scatter_l
+            ks_phf_l=k_scatter_l*aerosol_phase_fnc(1, 1, j)
+            phase_fnc(l, i, 1)=phase_fnc(l, i, 1)+ks_phf_l
+            forward_scatter(l, i)=forward_scatter(l, i)                   &
+              +ks_phf_l*aerosol_phase_fnc(1, 1, j)
+
+          ELSE IF ( (n_order_phase == 1) .AND.                                &
+            (i_aerosol_parametrization(j) == ip_aerosol_param_moist) .AND.    &
+            l_rescale .AND. (n_order_forward == 2) ) THEN
+
+            i_pointer=i_humidity_pointer(l, i)
+            weight_upper_l=(mean_rel_humidity(l, i)                      &
+              -humidities(i_pointer, j))                                  &
+              /delta_humidity
+            k_ext_tot(l, i)=k_ext_tot(l, i)                               &
+              +aerosol_mix_ratio(l, i, j_mr)                              &
+              *(aerosol_absorption(i_pointer, j)                          &
+              +weight_upper_l                                            &
+              *(aerosol_absorption(i_pointer+1, j)                        &
+              -aerosol_absorption(i_pointer, j)))
+            k_scatter_l=aerosol_mix_ratio(l, i, j_mr)                    &
+              *(aerosol_scattering(i_pointer, j)                          &
+              +weight_upper_l                                            &
+              *(aerosol_scattering(i_pointer+1, j)                        &
+              -aerosol_scattering(i_pointer, j)))
+            k_ext_scat(l, i)=k_ext_scat(l, i)                             &
+              +k_scatter_l
+            asymmetry_l                                                  &
+              =aerosol_phase_fnc(i_pointer, 1, j)                         &
+              +weight_upper_l                                            &
+              *(aerosol_phase_fnc(i_pointer+1, 1, j)                      &
+              -aerosol_phase_fnc(i_pointer, 1, j))
+            ks_phf_l=k_scatter_l*asymmetry_l
+            phase_fnc(l, i, 1)=phase_fnc(l, i, 1)+ks_phf_l
+            forward_scatter(l, i)=forward_scatter(l, i)                   &
+              +ks_phf_l*asymmetry_l
+
+          END IF
+
+        END IF ! Ends test for radiatively active aerosol
+
+      END DO
+
+    END DO
+  END DO
+
   DO j_mr=1, n_aerosol_mr
 
 !  Test to see if this aerosol is radiatively active:
@@ -285,27 +358,13 @@ SUBROUTINE opt_prop_aerosol(ierr                                        &
       (i_aerosol_parametrization(j) == ip_aerosol_param_dry) .AND.      &
       l_rescale .AND. (n_order_forward == 2) ) THEN
 
-      DO i=first_layer, last_layer
-!CDIR NODEP
-        DO l=1, n_profile
-          k_ext_tot(l, i)=k_ext_tot(l, i)                               &
-            +aerosol_mix_ratio(l, i, j_mr)                              &
-            *aerosol_absorption(1, j)
-          k_scatter(l)=aerosol_mix_ratio(l, i, j_mr)                    &
-            *aerosol_scattering(1, j)
-          k_ext_scat(l, i)=k_ext_scat(l, i)                             &
-            +k_scatter(l)
-          ks_phf(l)=k_scatter(l)*aerosol_phase_fnc(1, 1, j)
-          phase_fnc(l, i, 1)=phase_fnc(l, i, 1)+ks_phf(l)
-          forward_scatter(l, i)=forward_scatter(l, i)                   &
-            +ks_phf(l)*aerosol_phase_fnc(1, 1, j)
-        END DO
-      END DO
+      CONTINUE
 
     ELSE IF ( (n_order_phase == 1) .AND.                                &
       (i_aerosol_parametrization(j) == ip_aerosol_param_dry) .AND.      &
       .NOT. l_rescale ) THEN
 
+      STOP __LINE__
       DO i=first_layer, last_layer
 !CDIR NODEP
         DO l=1, n_profile
@@ -325,42 +384,13 @@ SUBROUTINE opt_prop_aerosol(ierr                                        &
       (i_aerosol_parametrization(j) == ip_aerosol_param_moist) .AND.    &
       l_rescale .AND. (n_order_forward == 2) ) THEN
 
-      DO i=first_layer, last_layer
-!CDIR NODEP
-        DO l=1, n_profile
-          i_pointer=i_humidity_pointer(l, i)
-          weight_upper(l)=(mean_rel_humidity(l, i)                      &
-            -humidities(i_pointer, j))                                  &
-            /delta_humidity
-          k_ext_tot(l, i)=k_ext_tot(l, i)                               &
-            +aerosol_mix_ratio(l, i, j_mr)                              &
-            *(aerosol_absorption(i_pointer, j)                          &
-            +weight_upper(l)                                            &
-            *(aerosol_absorption(i_pointer+1, j)                        &
-            -aerosol_absorption(i_pointer, j)))
-          k_scatter(l)=aerosol_mix_ratio(l, i, j_mr)                    &
-            *(aerosol_scattering(i_pointer, j)                          &
-            +weight_upper(l)                                            &
-            *(aerosol_scattering(i_pointer+1, j)                        &
-            -aerosol_scattering(i_pointer, j)))
-          k_ext_scat(l, i)=k_ext_scat(l, i)                             &
-            +k_scatter(l)
-          asymmetry(l)                                                  &
-            =aerosol_phase_fnc(i_pointer, 1, j)                         &
-            +weight_upper(l)                                            &
-            *(aerosol_phase_fnc(i_pointer+1, 1, j)                      &
-            -aerosol_phase_fnc(i_pointer, 1, j))
-          ks_phf(l)=k_scatter(l)*asymmetry(l)
-          phase_fnc(l, i, 1)=phase_fnc(l, i, 1)+ks_phf(l)
-          forward_scatter(l, i)=forward_scatter(l, i)                   &
-            +ks_phf(l)*asymmetry(l)
-        END DO
-      END DO
+      CONTINUE
 
     ELSE IF ( (n_order_phase == 1) .AND.                                &
       (i_aerosol_parametrization(j) == ip_aerosol_param_moist) .AND.    &
       .NOT. l_rescale ) THEN
 
+      STOP __LINE__
       DO i=first_layer, last_layer
 !CDIR NODEP
         DO l=1, n_profile
@@ -399,6 +429,7 @@ SUBROUTINE opt_prop_aerosol(ierr                                        &
          (i_aerosol_parametrization(j) ==                               &
           ip_aerosol_param_phf_moist) ) THEN
 
+      STOP __LINE__
 !     Use the Henyey-Greenstein phase function if specifically
 !     requested, or if using an old parametrization which gives
 !     only an asymmetry.
@@ -714,6 +745,7 @@ SUBROUTINE opt_prop_aerosol(ierr                                        &
 
     ELSE IF (i_aerosol_parametrization(j) ==                            &
              ip_aerosol_unparametrized) THEN
+       STOP __LINE__
        CALL prsc_opt_prop(ierr                                          &
          , n_profile, first_layer, last_layer                           &
          , l_rescale, n_order_forward                                   &

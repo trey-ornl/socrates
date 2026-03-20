@@ -27,12 +27,12 @@ SUBROUTINE two_coeff(ierr, control                                      &
      , nd_profile                                                       &
      , id_op_lt, id_op_lb, id_trs_lt, id_trs_lb                         &
      , nd_source_coeff                                                  &
+     , diff, gamma_down, gamma_up, lambda, summ &
      )
 
 
   USE realtype_rd, ONLY: RealK
   USE rad_pcf, ONLY: ip_solar
-  USE vectlib_mod, ONLY : sqrt_v
   USE yomhook, ONLY: lhook, dr_hook
   USE parkind1, ONLY: jprb, jpim
   USE def_control, ONLY: StrCtrl
@@ -109,6 +109,20 @@ SUBROUTINE two_coeff(ierr, control                                      &
         , nd_source_coeff)
 !       Source coefficients in two-stream equations
 
+! Work arrays
+! Coefficients in the two-stream equations:
+  REAL (RealK) ::                                                       &
+      lambda(:, id_op_lt:) &
+!       Coefficients in two-stream equations
+    , summ(:, id_op_lt:) &
+!       Sum of alpha_1 and alpha_2
+    , diff(:, id_op_lt:) &
+!       Difference of alpha_1 and alpha_2
+    , gamma_up(:, id_op_lt:) &
+!       Basic solar coefficient for upward radiation
+    , gamma_down(:, id_op_lt:)
+!       Basic solar coefficient for downward radiation
+
 
 ! Local variables.
   INTEGER                                                               &
@@ -116,19 +130,6 @@ SUBROUTINE two_coeff(ierr, control                                      &
 !       Loop variable
     , l
 !       Loop variable
-
-! Coefficients in the two-stream equations:
-  REAL (RealK) ::                                                       &
-      lambda(nd_profile, id_op_lt: id_op_lb)                            &
-!       Coefficients in two-stream equations
-    , sum(nd_profile, id_op_lt: id_op_lb)                               &
-!       Sum of alpha_1 and alpha_2
-    , diff(nd_profile, id_op_lt: id_op_lb)                              &
-!       Difference of alpha_1 and alpha_2
-    , gamma_up(nd_profile, id_op_lt: id_op_lb)                          &
-!       Basic solar coefficient for upward radiation
-    , gamma_down(nd_profile, id_op_lt: id_op_lb)
-!       Basic solar coefficient for downward radiation
 
   REAL (RealK) ::                                                       &
        temp(nd_profile)
@@ -145,20 +146,22 @@ SUBROUTINE two_coeff(ierr, control                                      &
 ! Calculate the basic two-stream coefficients. (The single
 ! scattering albedo has already been perturbed away from 1 in
 ! SINGLE_SCATTERING.)
+  !STOP __LINE__
   CALL two_coeff_basic(ierr                                             &
     , n_profile, i_layer_first, i_layer_last                            &
     , i_2stream                                                         &
     , asymmetry, omega                                                  &
-    , sum, diff                                                         &
+    , summ, diff                                                         &
     , nd_profile, id_op_lt, id_op_lb                                    &
     )
 
 ! LAMBDA is now calculated.
+  !STOP __LINE__
+  !$omp target teams distribute parallel do simd collapse(2)
   DO i=i_layer_first, i_layer_last
      DO l=1, n_profile
-        temp(l)=sum(l,i)*diff(l,i)
+        lambda(l,i)=sqrt(summ(l,i)*diff(l,i))
      END DO
-     CALL sqrt_v(n_profile,temp,lambda(1,i))
   END DO
 
 
@@ -166,10 +169,11 @@ SUBROUTINE two_coeff(ierr, control                                      &
   IF (isolir == ip_solar) THEN
 !   LAMBDA may be perturbed by this routine to avoid
 !   ill-conditioning for the singular zenith angle.
+    !STOP __LINE__
     CALL solar_coefficient_basic(control                                &
       , n_profile, i_layer_first, i_layer_last                          &
       , omega, asymmetry, sec_0, path_div                               &
-      , sum, diff, lambda                                               &
+      , summ, diff, lambda                                               &
       , gamma_up, gamma_down                                            &
       , nd_profile, id_op_lt, id_op_lb, id_trs_lt, id_trs_lb            &
       )
@@ -177,9 +181,10 @@ SUBROUTINE two_coeff(ierr, control                                      &
 
 
 ! Determine the transmission and reflection coefficients.
+  !STOP __LINE__
   CALL trans_source_coeff(control                                       &
     , n_profile, i_layer_first, i_layer_last                            &
-    , tau_dir, tau, sum, diff, lambda, sec_0, path_div                  &
+    , tau_dir, tau, summ, diff, lambda, sec_0, path_div                  &
     , gamma_up, gamma_down                                              &
     , trans, reflect, trans_0_dir, trans_0, source_coeff                &
     , nd_profile                                                        &
@@ -191,4 +196,5 @@ SUBROUTINE two_coeff(ierr, control                                      &
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE two_coeff
+
 END MODULE two_coeff_mod

@@ -86,12 +86,14 @@ SUBROUTINE finalise_photol_incr( &
   ! Photolysis calculations that do not depend on sub-band
   i_gas_last=0
   DO i_path=1, sp%photol%n_pathway
+    STOP __LINE__
     IF (l_path(i_path)) THEN
       i_gas = sp%photol%pathway_absorber(i_path)
       IF (i_gas /= i_gas_last) THEN
         photol_work = molar_weight(sp%gas%type_absorb(i_gas)) &
              * 1.0E-03_RealK / ( n_avogadro * h_planck * c_light )
         IF (.NOT.control%l_photol_only(sp%gas%type_absorb(i_gas))) THEN
+          STOP __LINE__
           WHERE (atm%gas_mix_ratio(1:n_profile, 1:n_layer, i_gas) > tol)
             photol_rate_work &
               = photol_work / atm%gas_mix_ratio(1:n_profile, 1:n_layer, i_gas)
@@ -104,6 +106,7 @@ SUBROUTINE finalise_photol_incr( &
       IF (control%l_photol_only(sp%gas%type_absorb(i_gas))) THEN
         ! Absorption of flux is neglected for this gas. Only the photolysis
         ! rates are calculated so the gas mixing ratio is not required.
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             ! Photolysis reactions per molecule per second
@@ -116,6 +119,7 @@ SUBROUTINE finalise_photol_incr( &
         ! Energy used for photolysis is considered to be thermalised
         ! immediately and will be included in the radiative heating.
         ! In this case the photolysis_div_incr remains at zero.
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             ! Photolysis reactions per molecule per second
@@ -125,6 +129,7 @@ SUBROUTINE finalise_photol_incr( &
           END DO
         END DO
       ELSE
+        STOP __LINE__
         threshold_wavenumber = 1.0_RealK &
                              / sp%photol%threshold_wavelength(i_path)
         DO i=1, n_layer

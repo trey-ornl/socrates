@@ -60,7 +60,7 @@ SUBROUTINE mcica_sample(ierr                                            &
     , n_column_slv, list_column_slv                                     &
     , i_clm_lyr_chn, i_clm_cld_typ, area_column                         &
 !                 Additional variables required for mcica
-    , l_cloud_cmp, n_cloud_profile, i_cloud_profile                     &
+    , l_cloud_cmp, n_cloud, cloud_layer, cloud_profile &
     , i_cloud_type, nd_cloud_component, iex, i_band                     &
     , i_cloud_representation                                            &
 !                 Levels for calculating radiances
@@ -82,8 +82,13 @@ SUBROUTINE mcica_sample(ierr                                            &
     , nd_max_order, nd_sph_coeff                                        &
     , nd_brdf_basis_fnc, nd_brdf_trunc, nd_viewing_level                &
     , nd_direction, nd_source_coeff                                     &
+    ! Work arrays
+    , rworkp1, rworkp2, rworkp3 &
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+    , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+    , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+    , rworkplsc1, rworkplsc2 &
     )
-
 
   USE realtype_rd, ONLY: RealK
   USE def_control, ONLY: StrCtrl
@@ -372,12 +377,9 @@ SUBROUTINE mcica_sample(ierr                                            &
 !       Clear-sky actinic flux
 
 ! Variables required for McICA
+  INTEGER, INTENT(IN) :: n_cloud, cloud_layer(:), cloud_profile(:)
   INTEGER, INTENT(IN) ::                                                &
-      n_cloud_profile(id_ct: nd_layer)                                  &
-!       number of cloudy profiles in each layer
-    , i_cloud_profile(nd_profile, id_ct: nd_layer)                      &
-!       profiles containing clouds
-    , nd_cloud_component                                                &
+      nd_cloud_component                                                &
 !       size allocated for components of clouds
     , i_cloud_type(nd_cloud_component)                                  &
 !       types of cloud to which each component contributes
@@ -398,6 +400,13 @@ SUBROUTINE mcica_sample(ierr                                            &
   REAL (RealK), INTENT(INOUT) ::                                        &
     contrib_funcf_part(nd_flux_profile, nd_layer)
 !       Contribution function (flux) increment
+! Work arrays
+  REAL(RealK), DIMENSION(:) :: rworkp1, rworkp2, rworkp3
+  REAL(RealK), DIMENSION(:, :) :: &
+    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6, &
+    rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12, &
+    rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18
+  REAL(RealK), DIMENSION(:, :, :) :: rworkplsc1, rworkplsc2
 
 ! Local variables.
   INTEGER :: i, j, l, ll, ls, k, m
@@ -450,6 +459,8 @@ SUBROUTINE mcica_sample(ierr                                            &
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+  STOP __LINE__
+
   DO m=cld%first_subcol_k(i_band,iex), cld%first_subcol_k(i_band,iex+1)-1
 
     index_subcol=MOD(m, dimen%nd_subcol_req)
@@ -475,19 +486,17 @@ SUBROUTINE mcica_sample(ierr                                            &
             (i_scatter_method == ip_no_scatter_ext) ) THEN
         DO k=1, cld%n_condensed
           IF (l_cloud_cmp(k)) THEN
-            DO i=n_cloud_top, n_layer
-!CDIR NODEP
-              DO ll=1, n_cloud_profile(i)
-                l=i_cloud_profile(ll, i)
-                ss_prop%k_grey_tot(l, i, i_cloud_type(k))               &
-                  =ss_prop%k_grey_tot(l, i, 0)                          &
-                  +ss_prop%k_ext_tot_cloud_comp(l, i, k)                &
-                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                ss_prop%k_ext_scat(l, i, i_cloud_type(k))               &
-                  =ss_prop%k_ext_scat(l, i, 0)                          &
-                  +ss_prop%k_ext_scat_cloud_comp(l, i, k)               &
-                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-              END DO
+            DO ll = 1, n_cloud
+              i = cloud_layer(ll)
+              l = cloud_profile(ll)
+              ss_prop%k_grey_tot(l, i, i_cloud_type(k))               &
+                =ss_prop%k_grey_tot(l, i, 0)                          &
+                +ss_prop%k_ext_tot_cloud_comp(l, i, k)                &
+                *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+              ss_prop%k_ext_scat(l, i, i_cloud_type(k))               &
+                =ss_prop%k_ext_scat(l, i, 0)                          &
+                +ss_prop%k_ext_scat_cloud_comp(l, i, k)               &
+                *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
             END DO
           END IF
         END DO
@@ -495,63 +504,59 @@ SUBROUTINE mcica_sample(ierr                                            &
         IF (l_rescale) THEN
           DO k=1, cld%n_condensed
             IF (l_cloud_cmp(k)) THEN
-              DO i=n_cloud_top, n_layer
-!CDIR NODEP
-                DO ll=1, n_cloud_profile(i)
-                  l=i_cloud_profile(ll, i)
-                  ss_prop%k_grey_tot(l, i, i_cloud_type(k))             &
-                    =ss_prop%k_grey_tot(l, i, 0)                        &
-                    +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
-                    *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  ss_prop%k_ext_scat(l, i, i_cloud_type(k))             &
-                    =ss_prop%k_ext_scat(l, i, 0)                        &
-                    +ss_prop%k_ext_scat_cloud_comp(l, i, k)             &
-                    *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  ss_prop%forward_scatter(l, i, i_cloud_type(k))        &
-                    =ss_prop%forward_scatter_no_cloud(l, i)             &
-                    +ss_prop%forward_scatter_cloud_comp(l, i, k)        &
-                    *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  DO ls=1, n_order_phase
-                    ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))        &
-                      =(ss_prop%phase_fnc_no_cloud(l, i, ls)            &
-                      +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)        &
-                      *cld%c_sub(l, i, index_subcol, i_cloud_type(k))   &
-                      -ss_prop%forward_scatter(l, i, i_cloud_type(k)))  &
-                      /MAX(ss_prop%k_ext_scat(l, i, i_cloud_type(k))    &
-                      -ss_prop%forward_scatter(l, i, i_cloud_type(k))   &
-                      ,eps)
-                  END DO
-                  ss_prop%forward_scatter(l, i, i_cloud_type(k))        &
-                    =ss_prop%forward_scatter(l, i, i_cloud_type(k))     &
-                    /MAX(ss_prop%k_ext_scat(l, i, i_cloud_type(k))      &
+              DO ll = 1, n_cloud
+                i = cloud_layer(ll)
+                l = cloud_profile(ll)
+                ss_prop%k_grey_tot(l, i, i_cloud_type(k))             &
+                  =ss_prop%k_grey_tot(l, i, 0)                        &
+                  +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
+                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+                ss_prop%k_ext_scat(l, i, i_cloud_type(k))             &
+                  =ss_prop%k_ext_scat(l, i, 0)                        &
+                  +ss_prop%k_ext_scat_cloud_comp(l, i, k)             &
+                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+                ss_prop%forward_scatter(l, i, i_cloud_type(k))        &
+                  =ss_prop%forward_scatter_no_cloud(l, i)             &
+                  +ss_prop%forward_scatter_cloud_comp(l, i, k)        &
+                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+                DO ls=1, n_order_phase
+                  ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))        &
+                    =(ss_prop%phase_fnc_no_cloud(l, i, ls)            &
+                    +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)        &
+                    *cld%c_sub(l, i, index_subcol, i_cloud_type(k))   &
+                    -ss_prop%forward_scatter(l, i, i_cloud_type(k)))  &
+                    /MAX(ss_prop%k_ext_scat(l, i, i_cloud_type(k))    &
+                    -ss_prop%forward_scatter(l, i, i_cloud_type(k))   &
                     ,eps)
                 END DO
+                ss_prop%forward_scatter(l, i, i_cloud_type(k))        &
+                  =ss_prop%forward_scatter(l, i, i_cloud_type(k))     &
+                  /MAX(ss_prop%k_ext_scat(l, i, i_cloud_type(k))      &
+                  ,eps)
               END DO
             END IF
           END DO
         ELSE
           DO k=1, cld%n_condensed
             IF (l_cloud_cmp(k)) THEN
-              DO i=n_cloud_top, n_layer
-!CDIR NODEP
-                DO ll=1, n_cloud_profile(i)
-                  l=i_cloud_profile(ll, i)
-                  ss_prop%k_grey_tot(l, i, i_cloud_type(k))             &
-                    =ss_prop%k_grey_tot(l, i, 0)                        &
-                    +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
-                    *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  ss_prop%k_ext_scat(l, i, i_cloud_type(k))             &
-                    =ss_prop%k_ext_scat(l, i, 0)                        &
-                    +ss_prop%k_ext_scat_cloud_comp(l, i, k)             &
-                    *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  DO ls=1, n_order_phase
-                    ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))        &
-                      =(ss_prop%phase_fnc_no_cloud(l, i, ls)            &
-                      +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)        &
-                      *cld%c_sub(l, i, index_subcol, i_cloud_type(k)))  &
-                      /MAX(ss_prop%k_ext_scat(l, i, i_cloud_type(k))    &
-                      ,eps)
-                  END DO
+              DO ll = 1, n_cloud
+                i = cloud_layer(ll)
+                l = cloud_profile(ll)
+                ss_prop%k_grey_tot(l, i, i_cloud_type(k))             &
+                  =ss_prop%k_grey_tot(l, i, 0)                        &
+                  +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
+                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+                ss_prop%k_ext_scat(l, i, i_cloud_type(k))             &
+                  =ss_prop%k_ext_scat(l, i, 0)                        &
+                  +ss_prop%k_ext_scat_cloud_comp(l, i, k)             &
+                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+                DO ls=1, n_order_phase
+                  ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))        &
+                    =(ss_prop%phase_fnc_no_cloud(l, i, ls)            &
+                    +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)        &
+                    *cld%c_sub(l, i, index_subcol, i_cloud_type(k)))  &
+                    /MAX(ss_prop%k_ext_scat(l, i, i_cloud_type(k))    &
+                    ,eps)
                 END DO
               END DO
             END IF
@@ -600,19 +605,17 @@ SUBROUTINE mcica_sample(ierr                                            &
       IF (control%l_avg_phase_fnc) THEN
         DO k=1, cld%n_condensed
           IF (l_cloud_cmp(k)) THEN
-            DO i=n_cloud_top, n_layer
-!CDIR NODEP
-              DO ll=1, n_cloud_profile(i)
-                l=i_cloud_profile(ll, i)
-                ss_prop%k_grey_tot(l, i, i_cloud_type(k))               &
-                  =ss_prop%k_grey_tot(l, i, i_cloud_type(k))            &
-                  +ss_prop%k_ext_tot_cloud_comp(l, i, k)                &
-                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                ss_prop%k_ext_scat(l, i, i_cloud_type(k))               &
-                  =ss_prop%k_ext_scat(l, i, i_cloud_type(k))            &
-                  +ss_prop%k_ext_scat_cloud_comp(l, i, k)               &
-                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-              END DO
+            DO ll = 1, n_cloud
+              i = cloud_layer(ll)
+              l = cloud_profile(ll)
+              ss_prop%k_grey_tot(l, i, i_cloud_type(k))               &
+                =ss_prop%k_grey_tot(l, i, i_cloud_type(k))            &
+                +ss_prop%k_ext_tot_cloud_comp(l, i, k)                &
+                *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+              ss_prop%k_ext_scat(l, i, i_cloud_type(k))               &
+                =ss_prop%k_ext_scat(l, i, i_cloud_type(k))            &
+                +ss_prop%k_ext_scat_cloud_comp(l, i, k)               &
+                *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
             END DO
           END IF
         END DO
@@ -620,28 +623,26 @@ SUBROUTINE mcica_sample(ierr                                            &
         IF (l_rescale) THEN
           DO k=1, cld%n_condensed
             IF (l_cloud_cmp(k)) THEN
-              DO i=n_cloud_top, n_layer
-!CDIR NODEP
-                DO ll=1, n_cloud_profile(i)
-                  l=i_cloud_profile(ll, i)
-                  ss_prop%k_grey_tot(l, i, i_cloud_type(k))             &
-                    =ss_prop%k_grey_tot(l, i, i_cloud_type(k))          &
-                    +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
+              DO ll = 1, n_cloud
+                i = cloud_layer(ll)
+                l = cloud_profile(ll)
+                ss_prop%k_grey_tot(l, i, i_cloud_type(k))             &
+                  =ss_prop%k_grey_tot(l, i, i_cloud_type(k))          &
+                  +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
+                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+                ss_prop%k_ext_scat(l, i, i_cloud_type(k))             &
+                  =ss_prop%k_ext_scat(l, i, i_cloud_type(k))          &
+                  +ss_prop%k_ext_scat_cloud_comp(l, i, k)             &
+                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+                ss_prop%forward_scatter(l, i, i_cloud_type(k))        &
+                  =ss_prop%forward_scatter(l, i, i_cloud_type(k))     &
+                  +ss_prop%forward_scatter_cloud_comp(l, i, k)        &
+                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+                DO ls=1, n_order_phase
+                  ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))        &
+                    =ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))     &
+                    +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)        &
                     *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  ss_prop%k_ext_scat(l, i, i_cloud_type(k))             &
-                    =ss_prop%k_ext_scat(l, i, i_cloud_type(k))          &
-                    +ss_prop%k_ext_scat_cloud_comp(l, i, k)             &
-                    *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  ss_prop%forward_scatter(l, i, i_cloud_type(k))        &
-                    =ss_prop%forward_scatter(l, i, i_cloud_type(k))     &
-                    +ss_prop%forward_scatter_cloud_comp(l, i, k)        &
-                    *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  DO ls=1, n_order_phase
-                    ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))        &
-                      =ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))     &
-                      +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)        &
-                      *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  END DO
                 END DO
               END DO
             END IF
@@ -649,24 +650,22 @@ SUBROUTINE mcica_sample(ierr                                            &
         ELSE
           DO k=1, cld%n_condensed
             IF (l_cloud_cmp(k)) THEN
-              DO i=n_cloud_top, n_layer
-!CDIR NODEP
-                DO ll=1, n_cloud_profile(i)
-                  l=i_cloud_profile(ll, i)
-                  ss_prop%k_grey_tot(l, i, i_cloud_type(k))             &
-                    =ss_prop%k_grey_tot(l, i, i_cloud_type(k))          &
-                    +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
+              DO ll = 1, n_cloud
+                i = cloud_layer(ll)
+                l = cloud_profile(ll)
+                ss_prop%k_grey_tot(l, i, i_cloud_type(k))             &
+                  =ss_prop%k_grey_tot(l, i, i_cloud_type(k))          &
+                  +ss_prop%k_ext_tot_cloud_comp(l, i, k)              &
+                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+                ss_prop%k_ext_scat(l, i, i_cloud_type(k))             &
+                  =ss_prop%k_ext_scat(l, i, i_cloud_type(k))          &
+                  +ss_prop%k_ext_scat_cloud_comp(l, i, k)             &
+                  *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
+                DO ls=1, n_order_phase
+                  ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))        &
+                    =ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))     &
+                    +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)        &
                     *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  ss_prop%k_ext_scat(l, i, i_cloud_type(k))             &
-                    =ss_prop%k_ext_scat(l, i, i_cloud_type(k))          &
-                    +ss_prop%k_ext_scat_cloud_comp(l, i, k)             &
-                    *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  DO ls=1, n_order_phase
-                    ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))        &
-                      =ss_prop%phase_fnc(l, i, ls, i_cloud_type(k))     &
-                      +ss_prop%phase_fnc_cloud_comp(l, i, ls, k)        &
-                      *cld%c_sub(l, i, index_subcol, i_cloud_type(k))
-                  END DO
                 END DO
               END DO
             END IF
@@ -681,46 +680,41 @@ SUBROUTINE mcica_sample(ierr                                            &
       IF (.NOT. control%l_avg_phase_fnc) THEN
         IF (l_rescale) THEN
           DO k=1, cld%n_cloud_type
-            DO i=n_cloud_top, n_layer
-!CDIR NODEP
-              DO ll=1, n_cloud_profile(i)
-                l=i_cloud_profile(ll, i)
-                DO ls=1, n_order_phase
-                  ss_prop%phase_fnc(l, i, ls, k)                        &
-                    =(ss_prop%phase_fnc(l, i, ls, k)                    &
-                    -ss_prop%forward_scatter(l, i, k))                  &
-                    /MAX(ss_prop%k_ext_scat(l, i, k)                    &
-                    -ss_prop%forward_scatter(l, i, k),eps)
-                END DO
-                ss_prop%forward_scatter(l, i, k)                        &
-                  =ss_prop%forward_scatter(l, i, k)                     &
-                  /MAX(ss_prop%k_ext_scat(l, i,k)                       &
-                    ,eps)
+            DO ll = 1, n_cloud
+              i = cloud_layer(ll)
+              l = cloud_profile(ll)
+              DO ls=1, n_order_phase
+                ss_prop%phase_fnc(l, i, ls, k)                        &
+                  =(ss_prop%phase_fnc(l, i, ls, k)                    &
+                  -ss_prop%forward_scatter(l, i, k))                  &
+                  /MAX(ss_prop%k_ext_scat(l, i, k)                    &
+                  -ss_prop%forward_scatter(l, i, k),eps)
               END DO
+              ss_prop%forward_scatter(l, i, k)                        &
+                =ss_prop%forward_scatter(l, i, k)                     &
+                /MAX(ss_prop%k_ext_scat(l, i,k)                       &
+                ,eps)
 
               IF (control%i_direct_tau == ip_direct_csr_scaling ) THEN
-! Calculate forward scattering fraction of direct flux within 
-! the instrument FOV 
-                 CALL circumsolar_fraction(n_cloud_profile(i)           &
-                  , i_cloud_profile(:, i), control%half_angle           &
-                  , ss_prop%phase_fnc(:, i, 1, k)                       &
-                  , ss_prop%forward_scatter_csr(:, i, k)                &
-                  , nd_profile                                          &
+                ! Calculate forward scattering fraction of direct flux within 
+                ! the instrument FOV 
+                CALL circumsolar_fraction( &
+                  control%half_angle           &
+                  , ss_prop%phase_fnc(l, i, 1, k)                       &
+                  , ss_prop%forward_scatter_csr(l, i, k)                &
                   ) 
               END IF
             END DO
           END DO
         ELSE
           DO k=1, cld%n_cloud_type
-            DO i=n_cloud_top, n_layer
-!CDIR NODEP
-              DO ll=1, n_cloud_profile(i)
-                l=i_cloud_profile(ll, i)
-                DO ls=1, n_order_phase
-                  ss_prop%phase_fnc(l, i, ls, k)                        &
-                    =ss_prop%phase_fnc(l, i, ls, k)                     &
-                    /MAX(ss_prop%k_ext_scat(l, i, k),eps)
-                END DO
+            DO ll = 1, n_cloud
+              i = cloud_layer(ll)
+              l = cloud_profile(ll)
+              DO ls=1, n_order_phase
+                ss_prop%phase_fnc(l, i, ls, k)                        &
+                  =ss_prop%phase_fnc(l, i, ls, k)                     &
+                  /MAX(ss_prop%k_ext_scat(l, i, k),eps)
               END DO
             END DO
           END DO
@@ -804,6 +798,12 @@ SUBROUTINE mcica_sample(ierr                                            &
       , nd_max_order, nd_sph_coeff                                      &
       , nd_brdf_basis_fnc, nd_brdf_trunc, nd_viewing_level              &
       , nd_direction, nd_source_coeff, nd_k_term_inner_dummy            &
+      ! Work arrays
+      , rworkp1, rworkp2, rworkp3 &
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5, rworkpl6 &
+      , rworkpl7, rworkpl8, rworkpl9, rworkpl10, rworkpl11, rworkpl12 &
+      , rworkpl13, rworkpl14, rworkpl15, rworkpl16, rworkpl17, rworkpl18 &
+      , rworkplsc1, rworkplsc2 &
       )
 
     IF (m == cld%first_subcol_k(i_band,iex)) THEN

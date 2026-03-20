@@ -212,6 +212,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       weight_channel_incr = weight_sub_band_incr
       photolysis_rate_incr = 0.0_RealK
       photolysis_div_incr = 0.0_RealK
+      STOP __LINE__
       CALL augment_channel(                                                    &
         control, sp, bound, radout, l_initial_channel, l_clear,                &
         i_channel, n_profile, n_layer, n_viewing_level, n_direction,           &
@@ -223,6 +224,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         nd_flux_profile, nd_radiance_profile, nd_j_profile,                    &
         nd_layer, nd_viewing_level, nd_direction, nd_channel)
     ELSE
+      STOP __LINE__
       ! Increment sub-bands for this k-term
       DO i_sub_k=1, sp%map%n_sub_band_k(iex, i_band)
         i_sub = sp%map%list_sub_band_k(i_sub_k, iex, i_band)
@@ -230,6 +232,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         weight_channel_incr = weight_sub_band_incr &
           * sp%map%weight_sub_band_k(i_sub_k, iex, i_band)
         l_calc_sub_band = .TRUE.
+        STOP __LINE__
         DO i_abs=2, sp%gas%n_band_absorb(i_band)
           IF (iex_minor(i_abs) > 0) THEN
             ! For the exact_major overlap method the minor gas k-term may
@@ -237,6 +240,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
             ! exact overlap with the major gas.
             i_gas = sp%gas%index_absorb(i_abs, i_band)
             l_weight_set = .FALSE.
+            STOP __LINE__
             DO i_k_sub=1, sp%map%n_k_sub_band(i_gas, i_sub)
               i_k = sp%map%list_k_sub_band(i_k_sub, i_gas, i_sub)
               IF (i_k == iex_minor(i_abs)) THEN
@@ -256,6 +260,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           photolysis_rate_incr = 0.0_RealK
           photolysis_div_incr = 0.0_RealK
           l_path=.FALSE.
+          STOP __LINE__
           CALL calc_photolysis_incr(                                           &
             sp, photolysis_rate_incr, nd_profile, nd_flux_profile, nd_layer,   &
             nd_esft_term, nd_abs, weight_channel_incr, i_band, l_path,         &
@@ -284,15 +289,18 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
     IF (iex > 0) THEN
       l_path=.FALSE.
       weight_band_incr = 0.0_RealK
+      !STOP __LINE__
       DO i_sub_k=1, sp%map%n_sub_band_k(iex, i_band)
         i_sub = sp%map%list_sub_band_k(i_sub_k, iex, i_band)
         weight_channel_incr = weight_sub_band_incr &
           * sp%map%weight_sub_band_k(i_sub_k, iex, i_band)
         l_calc_sub_band = .TRUE.
+        STOP __LINE__
         DO i_abs=2, sp%gas%n_band_absorb(i_band)
           IF (iex_minor(i_abs) > 0) THEN
             i_gas = sp%gas%index_absorb(i_abs, i_band)
             l_weight_set = .FALSE.
+            STOP __LINE__
             DO i_k_sub=1, sp%map%n_k_sub_band(i_gas, i_sub)
               i_k = sp%map%list_k_sub_band(i_k_sub, i_gas, i_sub)
               IF (i_k == iex_minor(i_abs)) THEN
@@ -306,6 +314,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           END IF
         END DO
         IF (l_calc_sub_band) THEN
+          STOP __LINE__
           CALL calc_photolysis_incr(                                           &
             sp, photolysis_rate_incr, nd_profile, nd_flux_profile, nd_layer,   &
             nd_esft_term, nd_abs, weight_channel_incr, i_band, l_path,         &
@@ -313,6 +322,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           weight_band_incr = weight_band_incr + weight_channel_incr
         END IF
       END DO
+      !STOP __LINE__
       CALL finalise_photol_incr(                                               &
         control, sp, atm, l_path,                                              &
         nd_flux_profile, nd_layer, n_profile, n_layer,                         &
@@ -331,6 +341,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
     END IF
     ! Increment the fluxes with bands mapping to channels
     i_channel = control%map_channel(i_band)
+    !STOP __LINE__
     CALL augment_channel(                                                      &
       control, sp, bound, radout, l_initial_channel, l_clear,                  &
       i_channel, n_profile, n_layer, n_viewing_level, n_direction,             &
@@ -354,6 +365,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       IF (control%isolir == ip_solar) THEN
         IF (control%l_spherical_solar) THEN
           IF (control%l_blue_flux_surf) THEN
+            STOP __LINE__
             DO l=1, n_profile
               radout%flux_direct_blue_surf(l) &
                 = weight_blue_incr*sph%allsky%flux_direct(l, n_layer+1)
@@ -361,6 +373,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           END IF
         ELSE
           IF (control%l_blue_flux_surf) THEN
+            STOP __LINE__
             DO l=1, n_profile
               radout%flux_direct_blue_surf(l) &
                 = weight_blue_incr*flux_direct_incr(l, n_layer)
@@ -368,6 +381,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           END IF
         END IF
         IF (control%l_blue_flux_surf) THEN
+          STOP __LINE__
           DO l=1, n_profile
             radout%flux_up_blue_surf(l) &
               = weight_blue_incr*flux_total_incr(l, 2*n_layer+1)
@@ -381,6 +395,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
               (control%i_sph_mode == ip_sph_mode_rad) ) THEN
 
       IF (control%isolir == ip_solar) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             i_direct(l, i)=weight_incr*i_direct_incr(l, i)
@@ -399,6 +414,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       IF (control%isolir == ip_solar) THEN
         IF (control%l_spherical_solar) THEN
           IF (control%l_blue_flux_surf) THEN
+            STOP __LINE__
             DO l=1, n_profile
               radout%flux_direct_blue_surf(l) &
                 = radout%flux_direct_blue_surf(l) &
@@ -407,6 +423,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           END IF
         ELSE
           IF (control%l_blue_flux_surf) THEN
+            STOP __LINE__
             DO l=1, n_profile
               radout%flux_direct_blue_surf(l) &
                 = radout%flux_direct_blue_surf(l) &
@@ -415,6 +432,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           END IF
         END IF
         IF (control%l_blue_flux_surf) THEN
+          STOP __LINE__
           DO l=1, n_profile
             radout%flux_up_blue_surf(l) &
               = radout%flux_up_blue_surf(l) &
@@ -430,6 +448,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
               (control%i_sph_mode == ip_sph_mode_rad) ) THEN
 
       IF (control%isolir == ip_solar) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             i_direct(l, i)=i_direct(l, i) &
@@ -446,6 +465,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
 
 !   Initialise the band-by-band fluxes
     IF (control%l_flux_direct_band) THEN
+      STOP __LINE__
       DO i=0, n_layer
         DO l=1, n_profile
           radout%flux_direct_band(l, i, i_band) &
@@ -455,6 +475,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
     END IF
     IF (control%l_flux_direct_div_band .AND. &
         control%l_spherical_solar) THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
           radout%flux_direct_div_band(l, i, i_band) &
@@ -464,6 +485,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
     END IF
     IF (control%l_flux_direct_sph_band .AND. &
         control%l_spherical_solar) THEN
+      STOP __LINE__
       DO i=0, n_layer+1
         DO l=1, n_profile
           radout%flux_direct_sph_band(l, i, i_band) &
@@ -472,6 +494,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END DO
     END IF
     IF (control%l_flux_down_band) THEN
+      STOP __LINE__
       DO i=0, n_layer
         DO l=1, n_profile
           radout%flux_down_band(l, i, i_band) &
@@ -480,6 +503,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END DO
     END IF
     IF (control%l_flux_up_band) THEN
+      STOP __LINE__
       DO i=0, n_layer
         DO l=1, n_profile
           radout%flux_up_band(l, i, i_band) &
@@ -489,6 +513,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
     END IF
     IF (control%l_flux_div_band .AND. .NOT.control%l_map_sub_bands) THEN
       IF (control%isolir == ip_solar .AND. control%l_spherical_solar) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%flux_div_band(l, i, i_band) &
@@ -499,6 +524,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           END DO
         END DO
       ELSE
+        STOP __LINE__ 
         DO i=1, n_layer
           DO l=1, n_profile
             radout%flux_div_band(l, i, i_band) &
@@ -510,6 +536,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END IF
       IF (control%isolir == ip_solar .AND. control%l_orog .AND. &
         .NOT. control%l_spherical_solar) THEN
+        STOP __LINE__
         DO l=1, n_profile
           radout%flux_div_band(l, n_layer, i_band) &
             = radout%flux_div_band(l, n_layer, i_band) &
@@ -517,7 +544,9 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
             * (bound%orog_corr(l) - 1.0_RealK)/bound%orog_corr(l)
         END DO
       END IF
+      STOP __LINE__
       DO i_path=1, sp%photol%n_pathway
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%flux_div_band(l, i, i_band) &
@@ -528,6 +557,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END DO
     END IF
     IF (control%l_actinic_flux_band) THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
           radout%actinic_flux_band(l, i, i_band) &
@@ -543,6 +573,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
              ( control%l_cloud_extinction .OR. &
                control%l_ls_cloud_extinction .OR. &
                control%l_cnv_cloud_extinction ) ) ) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_direct_clear_band(l, i, i_band) &
@@ -552,6 +583,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END IF
       IF (control%l_flux_direct_clear_div_band .AND. &
           control%l_spherical_solar) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%flux_direct_clear_div_band(l, i, i_band) &
@@ -564,6 +596,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
             control%l_cloud_extinction .OR. &
             control%l_ls_cloud_extinction .OR. &
             control%l_cnv_cloud_extinction)) THEN
+        STOP __LINE__
         DO i=0, n_layer+1
           DO l=1, n_profile
             radout%flux_direct_clear_sph_band(l, i, i_band) &
@@ -572,6 +605,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         END DO
       END IF
       IF (control%l_flux_down_clear_band) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_down_clear_band(l, i, i_band) &
@@ -583,6 +617,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           control%l_cloud_absorptivity .OR. &
           control%l_ls_cloud_absorptivity .OR. &
           control%l_cnv_cloud_absorptivity) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_up_clear_band(l, i, i_band) &
@@ -592,6 +627,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END IF
       IF (control%l_flux_div_clear_band .AND. .NOT.control%l_map_sub_bands) THEN
         IF (control%isolir == ip_solar .AND. control%l_spherical_solar) THEN
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div_clear_band(l, i, i_band) &
@@ -604,6 +640,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
             END DO
           END DO
         ELSE
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div_clear_band(l, i, i_band) &
@@ -617,6 +654,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         END IF
         IF (control%isolir == ip_solar .AND. control%l_orog .AND. &
           .NOT. control%l_spherical_solar) THEN
+          STOP __LINE__
           DO l=1, n_profile
             radout%flux_div_clear_band(l, n_layer, i_band) &
               = radout%flux_div_clear_band(l, n_layer, i_band) &
@@ -624,7 +662,9 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
               * (bound%orog_corr(l) - 1.0_RealK)/bound%orog_corr(l)
           END DO
         END IF
+        STOP __LINE__
         DO i_path=1, sp%photol%n_pathway
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div_clear_band(l, i, i_band) &
@@ -635,6 +675,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         END DO
       END IF
       IF (control%l_actinic_flux_clear_band) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%actinic_flux_clear_band(l, i, i_band) &
@@ -650,6 +691,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
              ( control%l_cloud_extinction .OR. &
                control%l_ls_cloud_extinction .OR. &
                control%l_cnv_cloud_extinction ) ) ) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_direct_clear_band(l, i, i_band) = 0.0_RealK
@@ -658,6 +700,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END IF
       IF (control%l_flux_direct_clear_div_band .AND. &
           control%l_spherical_solar) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%flux_direct_clear_div_band(l, i, i_band) = 0.0_RealK
@@ -669,6 +712,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
             control%l_cloud_extinction .OR. &
             control%l_ls_cloud_extinction .OR. &
             control%l_cnv_cloud_extinction)) THEN
+        STOP __LINE__
         DO i=0, n_layer+1
           DO l=1, n_profile
             radout%flux_direct_clear_sph_band(l, i, i_band) = 0.0_RealK
@@ -676,6 +720,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         END DO
       END IF
       IF (control%l_flux_down_clear_band) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_down_clear_band(l, i, i_band) = 0.0_RealK
@@ -686,6 +731,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           control%l_cloud_absorptivity .OR. &
           control%l_ls_cloud_absorptivity .OR. &
           control%l_cnv_cloud_absorptivity) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_up_clear_band(l, i, i_band) = 0.0_RealK
@@ -693,6 +739,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         END DO
       END IF
       IF (control%l_flux_div_clear_band) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%flux_div_clear_band(l, i, i_band) = 0.0_RealK
@@ -700,6 +747,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         END DO
       END IF
       IF (control%l_actinic_flux_clear_band) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%actinic_flux_clear_band(l, i, i_band) = 0.0_RealK
@@ -710,6 +758,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
     END IF
 
     IF (control%l_contrib_func_band) THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
           radout%contrib_funci_band(l, i, i_band) &
@@ -726,6 +775,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
 
 !   Increment the band-by-band fluxes
     IF (control%l_flux_direct_band) THEN
+      STOP __LINE__
       DO i=0, n_layer
         DO l=1, n_profile
           radout%flux_direct_band(l, i, i_band) &
@@ -736,6 +786,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
     END IF
     IF (control%l_flux_direct_div_band .AND. &
         control%l_spherical_solar) THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
           radout%flux_direct_div_band(l, i, i_band) &
@@ -746,6 +797,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
     END IF
     IF (control%l_flux_direct_sph_band .AND. &
         control%l_spherical_solar) THEN
+      STOP __LINE__
       DO i=0, n_layer+1
         DO l=1, n_profile
           radout%flux_direct_sph_band(l, i, i_band) &
@@ -755,6 +807,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END DO
     END IF
     IF (control%l_flux_down_band) THEN
+      STOP __LINE__
       DO i=0, n_layer
         DO l=1, n_profile
           radout%flux_down_band(l, i, i_band) &
@@ -764,6 +817,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END DO
     END IF
     IF (control%l_flux_up_band) THEN
+      STOP __LINE__
       DO i=0, n_layer
         DO l=1, n_profile
           radout%flux_up_band(l, i, i_band) &
@@ -774,6 +828,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
     END IF
     IF (control%l_flux_div_band .AND. .NOT.control%l_map_sub_bands) THEN
       IF (control%isolir == ip_solar .AND. control%l_spherical_solar) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%flux_div_band(l, i, i_band) &
@@ -784,6 +839,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           END DO
         END DO
       ELSE
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%flux_div_band(l, i, i_band) &
@@ -795,6 +851,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END IF
       IF (control%isolir == ip_solar .AND. control%l_orog .AND. &
         .NOT. control%l_spherical_solar) THEN
+        STOP __LINE__
         DO l=1, n_profile
           radout%flux_div_band(l, n_layer, i_band) &
             = radout%flux_div_band(l, n_layer, i_band) &
@@ -802,7 +859,9 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
             * (bound%orog_corr(l) - 1.0_RealK)/bound%orog_corr(l)
         END DO
       END IF
+      STOP __LINE__
       DO i_path=1, sp%photol%n_pathway
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%flux_div_band(l, i, i_band) &
@@ -813,6 +872,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END DO
     END IF
     IF (control%l_actinic_flux_band) THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
           radout%actinic_flux_band(l, i, i_band) &
@@ -828,6 +888,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
              ( control%l_cloud_extinction .OR. &
                control%l_ls_cloud_extinction .OR. &
                control%l_cnv_cloud_extinction ) ) ) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_direct_clear_band(l, i, i_band) &
@@ -838,6 +899,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END IF
       IF (control%l_flux_direct_clear_div_band .AND. &
           control%l_spherical_solar) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%flux_direct_clear_div_band(l, i, i_band) &
@@ -851,6 +913,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
             control%l_cloud_extinction .OR. &
             control%l_ls_cloud_extinction .OR. &
             control%l_cnv_cloud_extinction)) THEN
+        STOP __LINE__
         DO i=0, n_layer+1
           DO l=1, n_profile
             radout%flux_direct_clear_sph_band(l, i, i_band) &
@@ -860,6 +923,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         END DO
       END IF
       IF (control%l_flux_down_clear_band) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_down_clear_band(l, i, i_band) &
@@ -872,6 +936,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
           control%l_cloud_absorptivity .OR. &
           control%l_ls_cloud_absorptivity .OR. &
           control%l_cnv_cloud_absorptivity) THEN
+        STOP __LINE__
         DO i=0, n_layer
           DO l=1, n_profile
             radout%flux_up_clear_band(l, i, i_band) &
@@ -882,6 +947,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
       END IF
       IF (control%l_flux_div_clear_band .AND. .NOT.control%l_map_sub_bands) THEN
         IF (control%isolir == ip_solar .AND. control%l_spherical_solar) THEN
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div_clear_band(l, i, i_band) &
@@ -894,6 +960,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
             END DO
           END DO
         ELSE
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div_clear_band(l, i, i_band) &
@@ -907,6 +974,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         END IF
         IF (control%isolir == ip_solar .AND. control%l_orog .AND. &
           .NOT. control%l_spherical_solar) THEN
+          STOP __LINE__
           DO l=1, n_profile
             radout%flux_div_clear_band(l, n_layer, i_band) &
               = radout%flux_div_clear_band(l, n_layer, i_band) &
@@ -914,7 +982,9 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
               * (bound%orog_corr(l) - 1.0_RealK)/bound%orog_corr(l)
           END DO
         END IF
+        STOP __LINE__
         DO i_path=1, sp%photol%n_pathway
+          STOP __LINE__
           DO i=1, n_layer
             DO l=1, n_profile
               radout%flux_div_clear_band(l, i, i_band) &
@@ -925,6 +995,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
         END DO
       END IF
       IF (control%l_actinic_flux_clear_band) THEN
+        STOP __LINE__
         DO i=1, n_layer
           DO l=1, n_profile
             radout%actinic_flux_clear_band(l, i, i_band) &
@@ -936,6 +1007,7 @@ SUBROUTINE augment_radiance(control, sp, atm, bound, radout             &
     END IF
 
     IF (control%l_contrib_func_band) THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
           radout%contrib_funci_band(l, i, i_band) &

@@ -117,6 +117,7 @@ SUBROUTINE rescale_phase_fnc(n_profile                                  &
 
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
+  !$omp target teams distribute parallel do simd collapse(3)
   DO k=1, n_order_phase
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
@@ -130,6 +131,7 @@ SUBROUTINE rescale_phase_fnc(n_profile                                  &
 
   IF (l_rescale_solar_phf) THEN
 
+    STOP __LINE__
     DO id=1, n_direction
 
 !     As usual we do not store Legendre polynomials:

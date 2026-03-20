@@ -264,6 +264,10 @@
 
 !     Local variables:
 
+      ! Work arrays
+      REAL (RealK), DIMENSION(nd_profile, nd_layer) ::
+     &    rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5
+
 !     Spherical geometry fields
       TYPE(StrSphGeo) :: sph
 
@@ -704,6 +708,8 @@
      &    , flux_direct, flux_total
 !                       Sizes of arrays
      &    , nd_profile, nd_layer, nd_source_coeff
+          ! Work arrays
+     &    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5
      &    )
 !
       ELSE IF (i_angular_integration == IP_spherical_harmonic) THEN

@@ -92,6 +92,7 @@ SUBROUTINE ir_source(n_profile, i_layer_first, i_layer_last             &
 ! to the order required.
   IF (l_ir_source_quad) THEN
 
+    STOP __LINE__
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
         s_up(l, i)=source_coeff(l, i, ip_scf_ir_1d)                     &
@@ -108,6 +109,7 @@ SUBROUTINE ir_source(n_profile, i_layer_first, i_layer_last             &
 
   ELSE
 
+    !$omp target teams distribute parallel do simd collapse(2)
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
         s_up(l, i)=source_coeff(l, i, ip_scf_ir_1d)                     &

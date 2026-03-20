@@ -31,7 +31,6 @@ SUBROUTINE scale_absorb(ierr, n_profile, n_layer                        &
                      ip_scale_power_quad, ip_scale_doppler_quad,        &
                      ip_scale_dbl_pow_law, ip_scale_fnc_null,           &
                      ip_scale_dbl_pow_quad, ip_scale_wenyi
-  USE vectlib_mod, ONLY : rtor_v
   USE scale_wenyi, ONLY: plg, ttb, tto, gk250b, gk4, gk6
   USE yomhook, ONLY: lhook, dr_hook
   USE parkind1, ONLY: jprb, jpim
@@ -94,13 +93,7 @@ SUBROUTINE scale_absorb(ierr, n_profile, n_layer                        &
 !       Offset to pressure
 
   REAL (RealK) :: cgp, gkpb, gkpc
-  REAL (RealK) :: pwk_in(n_profile,n_layer) ! Workspace
-  REAL (RealK) :: pwk(n_profile,n_layer)    ! Workspace
-  REAL (RealK) :: twk_in(n_profile,n_layer) ! Workspace
-  REAL (RealK) :: twk(n_profile,n_layer)    ! Workspace
-  REAL (RealK) :: sp1(n_profile,n_layer)    ! Workspace
-  REAL (RealK) :: sp2(n_profile,n_layer)    ! Workspace
-  INTEGER :: n_input      ! No. of inputs for rtor_v function
+  REAL (RealK) :: pwk_in, pwk, twk_in, twk
   REAL (RealK) :: tmp, t_inv, p_ref_off_inv
 
   INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
@@ -119,18 +112,6 @@ SUBROUTINE scale_absorb(ierr, n_profile, n_layer                        &
     pressure_offset=0.0e+00_RealK
   END IF
 
-  IF ((i_fnc == ip_scale_power_law)  .OR.                               &
-      (i_fnc == ip_scale_power_quad) .OR.                               &
-      (i_fnc == ip_scale_doppler_quad)) THEN
-    DO i=1, n_layer
-      DO l=1, n_profile
-        sp1(l,i)=scale_parameter(1)
-        sp2(l,i)=scale_parameter(2)
-      END DO
-    END DO
-    n_input=(n_layer)*n_profile
-  END IF
-
 ! The array gas_frac_rescaled is used initially to hold only the
 ! scaling functions, and only later is it multiplied by the
 ! mixing ratios
@@ -138,22 +119,20 @@ SUBROUTINE scale_absorb(ierr, n_profile, n_layer                        &
 
     t_inv = 1.0_RealK/t_reference
     p_ref_off_inv = 1.0_RealK/(p_reference+pressure_offset)
+    STOP __LINE__
     DO i=1, n_layer
       DO l=1, n_profile
-        pwk_in(l,i)=(p(l,i)+pressure_offset)*p_ref_off_inv
-        twk_in(l,i)=t(l,i)*t_inv
-      END DO
-    END DO
-    CALL rtor_v(n_input,pwk_in,sp1,pwk)
-    CALL rtor_v(n_input,twk_in,sp2,twk)
-    DO i=1, n_layer
-      DO l=1, n_profile
-        gas_frac_rescaled(l, i)=pwk(l,i)*twk(l,i)
+        pwk_in=(p(l,i)+pressure_offset)*p_ref_off_inv
+        pwk=pwk_in**scale_parameter(1)
+        twk_in=t(l,i)*t_inv
+        twk=twk_in**scale_parameter(2)
+        gas_frac_rescaled(l, i)=pwk*twk
       END DO
     END DO
 
   ELSE IF (i_fnc == ip_scale_dbl_pow_law) THEN
 
+    STOP __LINE__
     DO i=1, n_layer
       DO l=1, n_profile
         IF (p(l, i) > scale_parameter(5)) THEN
@@ -170,23 +149,23 @@ SUBROUTINE scale_absorb(ierr, n_profile, n_layer                        &
 
   ELSE IF (i_fnc == ip_scale_fnc_null) THEN
 
+    STOP __LINE__
     IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
     RETURN
 
   ELSE IF (i_fnc == ip_scale_power_quad) THEN
 
     p_ref_off_inv = 1.0_RealK/(p_reference+pressure_offset)
-    DO i=  1, n_layer
-      DO l=1, n_profile
-        pwk_in(l,i)=(p(l,i)+pressure_offset)*p_ref_off_inv
-      END DO
-    END DO
-    CALL rtor_v(n_input,pwk_in,sp1,pwk)
     t_inv = 1.0_RealK/t_reference
+    !STOP __LINE__
+    !$omp target teams distribute parallel do simd collapse(2) &
+    !$omp& private(pwk, pwk_in, tmp)
     DO i=1, n_layer
       DO l=1, n_profile
+        pwk_in=(p(l,i)+pressure_offset)*p_ref_off_inv
+        pwk=pwk_in**scale_parameter(1)
         tmp = t(l,i)*t_inv - 1.0_RealK
-        gas_frac_rescaled(l, i)=pwk(l,i) &
+        gas_frac_rescaled(l, i)=pwk &
           *(1.0e+00_RealK+tmp*scale_parameter(2) &
           +scale_parameter(3)*tmp*tmp)
       END DO
@@ -194,6 +173,7 @@ SUBROUTINE scale_absorb(ierr, n_profile, n_layer                        &
 
   ELSE IF (i_fnc == ip_scale_dbl_pow_quad) THEN
 
+    STOP __LINE__
     DO i=1, n_layer
       DO l=1, n_profile
         IF (p(l, i) > scale_parameter(7)) THEN
@@ -218,18 +198,15 @@ SUBROUTINE scale_absorb(ierr, n_profile, n_layer                        &
 
 !   There is no Doppler term here since it is implicitly included
 !   in the scaling.
+    t_inv = 1.0_RealK/t_reference
+    STOP __LINE__
     DO i=  1, n_layer
       DO l=1, n_profile
-        pwk_in(l,i)=(p(l,i)+scale_parameter(2)) &
+        pwk_in=(p(l,i)+scale_parameter(2)) &
                    /(p_reference+scale_parameter(2))
-      END DO
-    END DO
-    CALL rtor_v(n_input,pwk_in,sp1,pwk)
-    t_inv = 1.0_RealK/t_reference
-    DO i=1, n_layer
-      DO l=1, n_profile
+        pwk=pwk_in**scale_parameter(1)
         tmp = t(l,i)*t_inv - 1.0_RealK
-        gas_frac_rescaled(l, i)=pwk(l,i) &
+        gas_frac_rescaled(l, i)=pwk &
           *(1.0e+00_RealK+tmp*scale_parameter(3) &
           +scale_parameter(4)*tmp*tmp)
       END DO
@@ -237,7 +214,9 @@ SUBROUTINE scale_absorb(ierr, n_profile, n_layer                        &
 
   ELSE IF (i_fnc == ip_scale_wenyi) THEN
 
+    STOP __LINE__
     IF (i_band  ==  4) THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
           cgp  = MAX(-5.5_RealK, LOG(p(l, i)/100.0_RealK))
@@ -256,6 +235,7 @@ SUBROUTINE scale_absorb(ierr, n_profile, n_layer                        &
         END DO
       END DO
     ELSE IF(i_band == 6)THEN
+      STOP __LINE__
       DO i=1, n_layer
         DO l=1, n_profile
           cgp  = MAX(-5.5_RealK, LOG(p(l, i)/100.0_RealK))

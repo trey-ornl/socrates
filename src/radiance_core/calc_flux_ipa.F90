@@ -48,6 +48,8 @@ SUBROUTINE calc_flux_ipa(ierr                                           &
 !                 Dimensions of Arrays
     , nd_profile, nd_layer, nd_layer_clr, id_ct, nd_column              &
     , nd_profile_column, nd_source_coeff                                &
+    ! Work arrays
+    , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
     )
 
 
@@ -189,7 +191,9 @@ SUBROUTINE calc_flux_ipa(ierr                                           &
     , flux_total_clear(nd_profile, 2*nd_layer+2)
 !       Total Clear-sky Flux
 
-
+! Work arrays
+  REAL (RealK), DIMENSION(:, :) :: &
+      rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5
 
 ! Local variables.
   INTEGER                                                               &
@@ -474,9 +478,9 @@ SUBROUTINE calc_flux_ipa(ierr                                           &
       , flux_direct_long, flux_total_long                               &
 !                   Sizes of arrays
       , nd_profile_column, nd_layer, nd_source_coeff                    &
+      ! Work arrays
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
       )
-
-
 
 !   Scatter the calculated fluxes back to their
 !   appropriate grid-points.
@@ -551,6 +555,8 @@ SUBROUTINE calc_flux_ipa(ierr                                           &
       , flux_direct_clear, flux_total_clear                             &
 !                   Sizes of arrays
       , nd_profile, nd_layer, nd_source_coeff                           &
+      ! Work arrays
+      , rworkpl1, rworkpl2, rworkpl3, rworkpl4, rworkpl5 &
       )
 
 !   Remove the arrays that are no longer required.

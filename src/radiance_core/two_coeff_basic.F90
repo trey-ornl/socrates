@@ -19,7 +19,7 @@ SUBROUTINE two_coeff_basic(ierr                                         &
      , n_profile, i_layer_first, i_layer_last                           &
      , i_2stream                                                        &
      , asymmetry, omega                                                 &
-     , sum, diff                                                        &
+     , summ, diff                                                        &
      , nd_profile, id_lt, id_lb                                         &
      )
 
@@ -71,7 +71,7 @@ SUBROUTINE two_coeff_basic(ierr                                         &
 
 ! coefficients in the two-stream equations:
   REAL (RealK), INTENT(OUT) ::                                          &
-      sum(nd_profile, id_lt: id_lb)                                     &
+      summ(nd_profile, id_lt: id_lb)                                     &
 !       Sum of alpha_1 and alpha_2
     , diff(nd_profile, id_lt: id_lb)
 !       Difference of alpha_1 and alpha_2
@@ -97,63 +97,72 @@ SUBROUTINE two_coeff_basic(ierr                                         &
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_in,zhook_handle)
 
   IF (i_2stream == ip_eddington) THEN
+    STOP __LINE__
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
-        sum(l, i)=1.5e+00_RealK*(1.0e+00_RealK                          &
+        summ(l, i)=1.5e+00_RealK*(1.0e+00_RealK                          &
           -omega(l, i)*asymmetry(l, i))
         diff(l, i)=2.0e+00_RealK*(1.0e+00_RealK-omega(l, i))
       END DO
     END DO
 
   ELSE IF (i_2stream == ip_elsasser) THEN
+    !STOP __LINE__
+    !$omp target teams distribute parallel do simd collapse(2)
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
-        sum(l, i)=elsasser_factor                                       &
+        summ(l, i)=elsasser_factor                                       &
           -1.5e+00_RealK*omega(l, i)*asymmetry(l, i)
         diff(l, i)=elsasser_factor*(1.0e+00_RealK-omega(l, i))
       END DO
     END DO
 
   ELSE IF (i_2stream == ip_discrete_ord) THEN
+    STOP __LINE__
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
-        sum(l, i)=root_3*(1.0e+00_RealK                                 &
+        summ(l, i)=root_3*(1.0e+00_RealK                                 &
           -omega(l, i)*asymmetry(l, i))
         diff(l, i)=root_3*(1.0e+00_RealK-omega(l, i))
       END DO
     END DO
 
   ELSE IF (i_2stream == ip_pifm85) THEN
+    STOP __LINE__
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
-        sum(l, i)=2.0e+00_RealK                                         &
+        summ(l, i)=2.0e+00_RealK                                         &
           -1.5e+00_RealK*omega(l, i)*asymmetry(l, i)
         diff(l, i)=2.0e+00_RealK*(1.0e+00_RealK-omega(l, i))
       END DO
     END DO
 
   ELSE IF (i_2stream == ip_2s_test) THEN
+    STOP __LINE__
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
-        sum(l, i)=1.5e+00_RealK                                         &
+        summ(l, i)=1.5e+00_RealK                                         &
           -1.5e+00_RealK*omega(l, i)*asymmetry(l, i)
         diff(l, i)=1.5e+00_RealK*(1.0e+00_RealK-omega(l, i))
       END DO
     END DO
 
   ELSE IF (i_2stream == ip_hemi_mean) THEN
+    STOP __LINE__
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
-        sum(l, i)=2.0e+00_RealK                                         &
+        summ(l, i)=2.0e+00_RealK                                         &
           *(1.0e+00_RealK-omega(l, i)*asymmetry(l, i))
         diff(l, i)=2.0e+00_RealK*(1.0e+00_RealK-omega(l, i))
       END DO
     END DO
 
   ELSE IF (i_2stream == ip_pifm80) THEN
+    !STOP __LINE__
+    !$omp target teams distribute parallel do simd collapse(2)
     DO i=i_layer_first, i_layer_last
       DO l=1, n_profile
-        sum(l, i)=2.0e+00_RealK                                         &
+        summ(l, i)=2.0e+00_RealK                                         &
           -1.5e+00_RealK*omega(l, i)*asymmetry(l, i)                    &
           -0.5e+00_RealK*omega(l, i)
         diff(l, i)=2.0e+00_RealK*(1.0e+00_RealK-omega(l, i))
@@ -208,4 +217,5 @@ SUBROUTINE two_coeff_basic(ierr                                         &
   IF (lhook) CALL dr_hook(ModuleName//':'//RoutineName,zhook_out,zhook_handle)
 
 END SUBROUTINE two_coeff_basic
+
 END MODULE two_coeff_basic_mod
