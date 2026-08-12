@@ -724,16 +724,17 @@ END IF
 Sp%Dim%nd_alloc_int = &
 Sp%Dim%nd_alloc_int + SIZE(Sp%Gas%n_t_lookup_gas)
 
-IF (.NOT. ALLOCATED(Sp%Gas%t_lookup_gas)) &
-  ALLOCATE(Sp%Gas%t_lookup_gas( Sp%Dim%nd_t_lookup_gas, Sp%Dim%nd_species ))
-Sp%Dim%nd_alloc_real = &
-Sp%Dim%nd_alloc_real + SIZE(Sp%Gas%t_lookup_gas)
-
-IF (.NOT. ALLOCATED(Sp%Gas%k_t_lookup_gas)) &
-  ALLOCATE(Sp%Gas%k_t_lookup_gas( Sp%Dim%nd_t_lookup_gas, Sp%Dim%nd_k_term, &
-                                  Sp%Dim%nd_species, Sp%Dim%nd_band ))
-Sp%Dim%nd_alloc_real = &
-Sp%Dim%nd_alloc_real + SIZE(Sp%Gas%k_t_lookup_gas)
+IF (Sp%Dim%nd_t_lookup_gas .GT. 0) THEN
+  IF (.NOT. ALLOCATED(Sp%Gas%t_lookup_gas)) &
+    ALLOCATE(Sp%Gas%t_lookup_gas( Sp%Dim%nd_t_lookup_gas, Sp%Dim%nd_species ))
+  Sp%Dim%nd_alloc_real = &
+    Sp%Dim%nd_alloc_real + SIZE(Sp%Gas%t_lookup_gas)
+  IF (.NOT. ALLOCATED(Sp%Gas%k_t_lookup_gas)) &
+    ALLOCATE(Sp%Gas%k_t_lookup_gas( Sp%Dim%nd_t_lookup_gas, Sp%Dim%nd_k_term, &
+    Sp%Dim%nd_species, Sp%Dim%nd_band ))
+  Sp%Dim%nd_alloc_real = &
+    Sp%Dim%nd_alloc_real + SIZE(Sp%Gas%k_t_lookup_gas)
+END IF
 
 IF (.NOT. ALLOCATED(Sp%Gas%l_doppler)) THEN
   ALLOCATE(Sp%Gas%l_doppler( Sp%Dim%nd_species ))
