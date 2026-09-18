@@ -674,7 +674,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
 
       DO i=1, n_layer
         DO l=1, n_profile
-          k_min(i, l)=HUGE(k_min(1, 1))
+          k_min(l, i)=HUGE(k_min(1, 1))
         END DO
       END DO
 
@@ -1007,7 +1007,7 @@ SUBROUTINE solve_band_k_eqv_scl(ierr &
       !$omp target teams distribute parallel do simd collapse(2)
       DO i=1, n_layer
         DO l=1, n_profile
-          k_min(i, l)=HUGE(k_min(1, 1))
+          k_min(l, i)=HUGE(k_min(1, 1))
         END DO
       END DO
 
