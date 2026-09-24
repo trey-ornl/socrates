@@ -139,7 +139,7 @@ SUBROUTINE overlap_coupled(n_profile, n_layer, n_cloud_top              &
     , tol_cloud
 !       Tolerance used to detect cloud amounts of 0
 
-  REAL (RealK) :: tmp_cloud_cover
+  REAL (RealK) :: atomic_tmp, tmp_cloud_cover
 
   INTEGER(KIND=jpim), PARAMETER :: zhook_in  = 0
   INTEGER(KIND=jpim), PARAMETER :: zhook_out = 1
@@ -178,7 +178,7 @@ SUBROUTINE overlap_coupled(n_profile, n_layer, n_cloud_top              &
     !$omp parallel do &
     !$omp& private(area_lower, area_overlap, area_upper) &
     !$omp& private(area_random_lower, area_random_upper, area_random_tot) &
-    !$omp& private(corr_factor, dp_corr)
+    !$omp& private(atomic_tmp, corr_factor, dp_corr)
     DO i=n_cloud_top-1, n_layer
 
       DO k=1, n_region
@@ -278,9 +278,9 @@ SUBROUTINE overlap_coupled(n_profile, n_layer, n_cloud_top              &
         IF ( (i >= n_cloud_top).AND.(i < n_layer) ) THEN
 
           IF (w_free(l, i+1) > tol_cloud) THEN
+            atomic_tmp=w_free(l, i+1) / (1.0e+00_RealK - area_overlap(2, 2))
             !$omp atomic update
-            tmp_cloud_cover=tmp_cloud_cover*w_free(l, i+1) /      &
-              (1.0e+00_RealK - area_overlap(2, 2))
+            tmp_cloud_cover=tmp_cloud_cover*atomic_tmp
           ELSE
             !$omp atomic write
             tmp_cloud_cover = 0.0e+00_RealK
@@ -294,10 +294,10 @@ SUBROUTINE overlap_coupled(n_profile, n_layer, n_cloud_top              &
         IF ( (i >= n_cloud_top).AND.(i < n_layer) ) THEN
 
           IF (w_free(l, i+1) > tol_cloud) THEN
+            atomic_tmp=w_free(l, i+1) / &
+              (1.0e+00_RealK - area_overlap(2, 2)- area_overlap(3, 3))
             !$omp atomic update
-            tmp_cloud_cover=tmp_cloud_cover*w_free(l, i+1) /      &
-              (1.0e+00_RealK - area_overlap(2, 2)                    &
-              - area_overlap(3, 3))
+            tmp_cloud_cover=tmp_cloud_cover*atomic_tmp
           ELSE
             !$omp atomic write
             tmp_cloud_cover = 0.0e+00_RealK

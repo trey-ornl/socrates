@@ -179,6 +179,7 @@ TYPE (StrDim),      INTENT(IN)    :: dimen
 TYPE (StrSpecData), INTENT(IN)    :: sp
 
 IF (.NOT. ALLOCATED(radout%flux_direct)) THEN
+  !$omp target enter data map(radout)
   ALLOCATE(radout%flux_direct                  ( dimen%nd_flux_profile,        &
                                                  0: dimen%nd_layer,            &
                                                  dimen%nd_channel            ))
@@ -806,6 +807,7 @@ END IF
 IF (ALLOCATED(radout%flux_direct)) THEN
     !$omp target exit data map(delete: radout%flux_direct)
     DEALLOCATE(radout%flux_direct)
+    !$omp target exit data map(delete: radout)
 END IF
 
 END SUBROUTINE deallocate_out
